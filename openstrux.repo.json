@@ -1,0 +1,9 @@
+{
+  "name": "openstrux",
+  "type": "project",
+  "version": "0.1.0",
+  "depends_on": [],
+  "consumers": [],
+  "benchmark_profile": "project",
+  "compatibility": {}
+}

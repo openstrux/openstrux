@@ -1,0 +1,6 @@
+* @openstrux/admin
+/docs/manifesto/        @openstrux/admin @openstrux/spec
+/docs/architecture/     @openstrux/admin @openstrux/spec
+/benchmarks/            @openstrux/admin @openstrux/spec
+/governance/            @openstrux/admin
+/demos/                 @openstrux/community

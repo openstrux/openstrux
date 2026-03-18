@@ -1,0 +1,14 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  docs-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check links
+        run: |
+          find . -name "*.md" | head -20
+          echo "Link check placeholder – add markdownlint or lychee"
