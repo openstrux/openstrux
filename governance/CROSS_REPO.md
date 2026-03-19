@@ -24,6 +24,15 @@ openstrux-<usecase>     ← use-case repos (e.g. openstrux-uc-grant-workflow)
 Spec wins in all conflicts. Core never defines normative behaviour; it implements spec.
 Use-case repos consume core; they do not contribute back to it.
 
+### Active repos (v0.6.0)
+
+| Repo | Type | Version |
+|---|---|---|
+| `openstrux-spec` | spec | 0.5.0 → 0.6.0 |
+| `openstrux-core` | core | 0.6.0-alpha |
+| `openstrux` | hub | 0.6.0-alpha |
+| `openstrux-uc-grant-workflow` | usecase | 0.1.0 (new) |
+
 ---
 
 ## Version lock: `openstrux.repo.json`

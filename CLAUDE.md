@@ -6,8 +6,9 @@ This repo is the canonical home for the Openstrux manifesto, governance, benchma
 
 | Repo | Purpose |
 |---|---|
-| `../openstrux-spec` | Normative language specification (v0.4) |
+| `../openstrux-spec` | Normative language specification (v0.5) |
 | `../openstrux-core` | Parser, validator, AST/IR implementation |
+| `../openstrux-uc-grant-workflow` | NLnet grant-workflow use case (P0–P2 demo for v0.6.0) |
 
 ## Folder guide
 
