@@ -1,0 +1,28 @@
+schema: spec-driven
+
+context: |
+  Openstrux - standard for certifiable AI-native software.
+
+  This is the project hub repo. It holds the manifesto, governance, benchmark definitions, and use-cases.
+  The language spec lives in ../openstrux-spec. The implementation lives in ../openstrux-core.
+
+  **Folder layout:**
+  - docs/manifesto/        Manifesto, objectives, benchmark policy (normative)
+  - docs/use-cases/        Per-use-case requirements
+  - benchmarks/cases/      Benchmark case definitions (B001–B030+)
+  - benchmarks/baselines/  Hand-written reference implementations
+  - benchmarks/results/    Dated benchmark run outputs
+  - governance/            Contribution policy, RFC process, release gate
+  - demos/                 Runnable examples
+  - openspec/              This workflow layer (product planning)
+
+  **Key references:**
+  - Manifesto: docs/manifesto/MANIFESTO.md
+  - Objectives: docs/manifesto/MANIFESTO_OBJECTIVES.md
+  - Benchmark policy: docs/manifesto/MANIFESTO_BENCHMARKS.md
+  - Spec: ../openstrux-spec/specs/core/syntax-reference.md
+
+  **Conventions:**
+  - Benchmark cases follow MANIFESTO_BENCHMARKS.md §5 format
+  - Every spec change must pass the manifesto review scorecard
+  - Use PASS/WARN/FAIL per MANIFESTO_OBJECTIVES.md review rules
