@@ -31,3 +31,27 @@ tmp/                Working drafts only — promote to openstrux-spec via change
 - Benchmark cases MUST follow the format in `MANIFESTO_BENCHMARKS.md §5`.
 - Draft spec material goes to `tmp/` then migrates to `openstrux-spec` — never stays here permanently.
 - `tmp/` is untracked working space; do not commit tmp files to main.
+
+## Commit format
+
+**Title:** imperative, ≤ 72 chars.
+
+**Body:** single flowing paragraph — no unnecessary line breaks. Wrap only at natural sentence boundaries if needed.
+
+**Human-authored:**
+```
+<description>
+
+Author: Name <email>
+```
+
+**AI-assisted:**
+```
+<description>
+
+Author: homofaber-tech with Claude Opus 4.6 <info@homofaberconsulting.com>
+[Gen AI contribution: <1–2 elements max, must make clear it followed author's instructions and that author has reviewed and eventually updated the result>]
+Defined and Reviewed by author
+```
+
+Update model name to whichever is actually running. Keep `[Gen AI contribution]` to 1–2 brief items. Do NOT use `Co-Authored-By`. NLnet grant compliance requires explicit AI disclosure.
