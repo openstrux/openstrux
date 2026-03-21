@@ -15,7 +15,7 @@ This repo is the canonical home for the Openstrux manifesto, governance, benchma
 ```
 docs/manifesto/     Manifesto, objectives, and benchmark policy — normative for all review decisions
 docs/architecture/  Cross-repo architecture diagrams and notes
-docs/roadmap/       Release plans and milestone tracking
+docs/roadmap/       Release plans, milestone tracking, and backlog (unversioned future work pool)
 docs/use-cases/     Per-use-case requirements (grant-workflow = privacy-first grant review workflow)
 benchmarks/cases/   Benchmark case definitions per MANIFESTO_BENCHMARKS.md (B001–B030+)
 benchmarks/baselines/ Hand-written reference implementations (Beam Python, TypeScript)
