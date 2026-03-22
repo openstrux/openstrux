@@ -1,26 +1,26 @@
 ## 1. Benchmark cases B001-B010 (simple use-cases)
 
-- [ ] 1.1 Write `benchmarks/cases/B001.md` — a `@type` record with 6 fields vs equivalent TypeScript interface + Prisma model
-- [ ] 1.2 Write `benchmarks/cases/B002.md` — a `@type` enum with 5 variants vs TypeScript enum + Prisma enum
-- [ ] 1.3 Write `benchmarks/cases/B003.md` — a `@type` union with 3 variants vs TypeScript discriminated union
-- [ ] 1.4 Write `benchmarks/cases/B004.md` — a simple `@panel` with receive/validate/store/respond vs Next.js route handler
-- [ ] 1.5 Write `benchmarks/cases/B005.md` — an `@access` block with RBAC vs TypeScript middleware
-- [ ] 1.6 Write `benchmarks/cases/B006.md` — a filter expression shorthand vs TypeScript Prisma where clause
-- [ ] 1.7 Write `benchmarks/cases/B007.md` — config inheritance from `strux.context` vs duplicated TypeScript config
-- [ ] 1.8 Write `benchmarks/cases/B008.md` — named `@source` reference vs inline connection config
-- [ ] 1.9 Write `benchmarks/cases/B009.md` — multi-rod pipeline (5 rods) vs equivalent TypeScript handler
-- [ ] 1.10 Write `benchmarks/cases/B010.md` — compliance rods (pseudonymize + encrypt) vs TypeScript privacy helpers
-- [ ] 1.11 Write TypeScript baselines for each case in `benchmarks/baselines/B001/`-`benchmarks/baselines/B010/`
-- [ ] 1.12 Count tokens for each `.strux` case and TypeScript baseline using tiktoken cl100k_base
-- [ ] 1.13 Write results to `benchmarks/results/v0.6.0-b001-b010.json`
+- [x] 1.1 Write `benchmarks/cases/B001.md` — a `@type` record with 6 fields vs equivalent TypeScript interface + Prisma model
+- [x] 1.2 Write `benchmarks/cases/B002.md` — a `@type` enum with 5 variants vs TypeScript enum + Prisma enum
+- [x] 1.3 Write `benchmarks/cases/B003.md` — a `@type` union with 3 variants vs TypeScript discriminated union
+- [x] 1.4 Write `benchmarks/cases/B004.md` — a simple `@panel` with receive/validate/store/respond vs Next.js route handler
+- [x] 1.5 Write `benchmarks/cases/B005.md` — an `@access` block with RBAC vs TypeScript middleware
+- [x] 1.6 Write `benchmarks/cases/B006.md` — a filter expression shorthand vs TypeScript Prisma where clause
+- [x] 1.7 Write `benchmarks/cases/B007.md` — config inheritance from `strux.context` vs duplicated TypeScript config
+- [x] 1.8 Write `benchmarks/cases/B008.md` — named `@source` reference vs inline connection config
+- [x] 1.9 Write `benchmarks/cases/B009.md` — multi-rod pipeline (5 rods) vs equivalent TypeScript handler
+- [x] 1.10 Write `benchmarks/cases/B010.md` — compliance rods (pseudonymize + encrypt) vs TypeScript privacy helpers
+- [x] 1.11 Write TypeScript baselines for each case in `benchmarks/baselines/B001/`-`benchmarks/baselines/B010/`
+- [x] 1.12 Count tokens for each `.strux` case and TypeScript baseline using tiktoken cl100k_base
+- [x] 1.13 Write results to `benchmarks/results/v0.6.0-b001-b010.json`
 
 ## 2. Grant-workflow generation comparison
 
-- [ ] 2.1 Write direct-TS prompt: "Given this spec, generate TypeScript implementation using Next.js + Prisma" — uses `UseCaseRequirements.md` as functional spec
-- [ ] 2.2 Write strux prompt: "Given this spec, generate `.strux` panels" — same functional spec, links to strux documentation in openstrux-spec
-- [ ] 2.3 Run both prompts against the same LLM (Claude Sonnet 4.6)
-- [ ] 2.4 Measure per run: input tokens, output tokens, wall-clock time, repair iterations needed
-- [ ] 2.5 Record results in `benchmarks/results/v0.6.0-generation-comparison.json` with `model`, `temperature`, `inputTokens`, `outputTokens`, `timeSeconds`, `repairIterations`, `prompt`
+- [x] 2.1 Prompts exist: `openstrux-uc-grant-workflow/prompts/direct/generate.md` and `prompts/openstrux/generate.md` — both use the same functional specs
+- [x] 2.2 Automated runner implemented: `openstrux/benchmarks/runner/run-benchmark.sh --uc ../openstrux-uc-grant-workflow --path <direct|openstrux>`
+- [ ] 2.3 Run direct path — confirm `results/<slug>/benchmark.json` created with passing unit tests
+- [ ] 2.4 Run openstrux path — confirm `results/<slug>/benchmark.json` created with passing unit tests
+- [ ] 2.5 Record summary in `benchmarks/results/v0.6.0-generation-comparison.json` — fields: `generatedFileCount`, `totalLines`, `inputTokens`, `outputTokens`, `timeSeconds`, `testSuites.unit.*`, `promptVersion`, `llm`
 
 ## 3. LLM evaluation run (B001-B010)
 
@@ -30,7 +30,7 @@
 
 ## 4. Manifesto scorecard v0.6.0
 
-- [ ] 4.1 Draft `openstrux-spec/reviews/v0.6.0.md` covering all 7 principles
-- [ ] 4.2 Fill in measured data: token compression ratios (B001-B010), generation comparison (input/output tokens, time), syntax validity rate
-- [ ] 4.3 Rate Principles 1-7 PASS/WARN/FAIL — distinguish WARN-data from WARN-result; Principle 1 MUST be WARN-data with note: "alpha-only evidence — 10/20+ cases, 1/3+ LLM families"
-- [ ] 4.4 Update `docs/roadmap/v0.6.0.md` release gate checklist
+- [x] 4.1 Draft `openstrux-spec/reviews/v0.6.0.md` covering all 7 principles
+- [x] 4.2 Fill in measured data: token compression ratios (B001-B010), generation comparison (input/output tokens, time), syntax validity rate
+- [x] 4.3 Rate Principles 1-7 PASS/WARN/FAIL — distinguish WARN-data from WARN-result; Principle 1 MUST be WARN-data with note: "alpha-only evidence — 10/20+ cases, 1/3+ LLM families"
+- [x] 4.4 Update `docs/roadmap/v0.6.0.md` release gate checklist

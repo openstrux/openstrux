@@ -4,7 +4,7 @@ Date: 2026-03-18
 
 ## 1. Purpose
 
-This document defines the functional and technical requirements for the MVP use case: a privacy-first, generated review workflow system inspired by the NLnet NGI Zero Commons Fund submission and review process. [page:1][page:2]
+This document defines the functional and technical requirements for the MVP use case: a privacy-first, generated review workflow system inspired by EU open-source grant programmes with public submission and blinded review processes. [page:1][page:2]
 
 The objective is not to replace reviewers or automate grant decisions. The objective is to demonstrate that a compact structured source can generate a secure back end, lightweight predefined UI, strong access controls, blinded review workflow, auditability, and benchmarkable implementation outputs with low token cost and fast execution. [file:14][file:12][file:13]
 
@@ -131,7 +131,8 @@ The system must support submission metadata including:
 - requested budget
 - proposal title
 - abstract
-- structured tags
+- budget usage explanation
+- tasks breakdown with effort and rates
 - attachments metadata
 
 #### FR-P1-007
@@ -292,9 +293,8 @@ The MVP technical stack is:
 - Next.js for UI and server-side application logic
 - Prisma as ORM / schema / migration layer
 - PostgreSQL as primary database
-- Keycloak for identity and access management
-- Debian Linux as deployment OS
-- Podman for container runtime [web:252][web:281][web:197][web:208][web:216][web:215]
+
+Authentication (Keycloak or equivalent) is deferred to P3+. For P0-P2 the application uses role-based middleware with a dev-mode header bypass. [web:252][web:281][web:197][web:208][web:216][web:215]
 
 ### 8.2 Stack constraints
 
@@ -306,8 +306,7 @@ The MVP technical stack is:
 
 - The Next.js application must provide both the lightweight UI and the MVP server-side endpoints.
 - PostgreSQL must store the canonical business data.
-- Keycloak must handle authentication and role/claim issuance.
-- Application-level authorization must still enforce workflow-specific visibility rules inside the app. [web:208][web:201][file:10]
+- Application-level authorization must enforce workflow-specific visibility rules using role-based middleware. [web:208][web:201][file:10]
 
 ### 8.4 Data model requirements
 
@@ -344,14 +343,16 @@ Identity-bearing data and reviewer-visible data must not be stored in the same a
 
 The initial implementation should use one **starter repository** for delivery speed, but it must be organized so that specification, prompts, generated outputs, benchmark assets, and application code remain clearly separated. This is consistent with the Openstrux specification model, which separates stable source-of-truth material, normative requirements, profiles, conformance fixtures, and implementation guidance. [file:1]
 
-The repository must support two execution paths against the same initialized target:
-- baseline direct prompt execution
+The repository must support two execution paths against the same baseline:
+- direct prompt execution (TypeScript without Openstrux)
 - Openstrux-assisted prompt execution [file:13][file:14]
+
+The **baseline** is the initial state of the starter repository: pre-built frontend (archived change), pre-written tests (archived change), specs, prompts, and a defined backend-generation change. The backend — including the data model, service layer, and API routes — is NOT pre-implemented. Each generation path uses prompts to instruct an LLM to implement the backend. The pre-written tests serve as acceptance criteria: prompts iterate until all tests pass. This ensures both paths are measured against identical expectations without either path having access to a pre-written reference implementation. [file:13]
 
 ### 8.7 Starter repository structure
 
 ```text
-openstrux-nlnet-mvp/
+openstrux-uc-grant-workflow/
   README.md
   LICENSE
   CONTRIBUTING.md
@@ -382,32 +383,18 @@ openstrux-nlnet-mvp/
     prompt-contract.md
 
   prompts/
-    shared/
+    shared/                 # LLM context: system prompt, constraints, task format
       system.md
       constraints.md
       task-format.md
-    baseline/
-      p0-domain-model.md
-      p1-intake.md
-      p2-eligibility.md
-      p3-review.md
-      p4-clarification.md
-      p5-validation.md
-      p6-audit.md
-    openstrux/
-      p0-domain-model.md
-      p1-intake.md
-      p2-eligibility.md
-      p3-review.md
-      p4-clarification.md
-      p5-validation.md
-      p6-audit.md
+    direct/                 # Path-specific: generate TypeScript directly
+    openstrux/              # Path-specific: generate .strux panels + strux build
 
   openspec/
-    product/
-    requirements/
-    tasks/
-    acceptance/
+    changes/
+      frontend/           # Archived: completed Next.js frontend
+      backend-generation/ # Defined: the task both paths execute
+      tests/              # Archived: vitest unit + integration tests
 
   app/
     web/
@@ -446,10 +433,6 @@ openstrux-nlnet-mvp/
         access/
         retention/
         workflow/
-    generators/
-      src/
-        baseline/
-        openstrux/
     benchmark-model/
       src/
         scorecard/
@@ -462,13 +445,8 @@ openstrux-nlnet-mvp/
     seeds/
 
   infra/
-    containers/
-      Containerfile.web
-      Containerfile.keycloak
     podman/
-      compose.yaml
-    keycloak/
-      realm-export.json
+      compose.yaml          # PostgreSQL for integration tests
     db/
       init.sql
 
@@ -576,14 +554,10 @@ Fixture-based conformance tests for valid/invalid policy cases.
 
 Golden tests for blinded packet generation and workflow state transitions. [file:1][file:13]
 
-8.12 Deployment requirements
-The application must run locally with a documented one-command or few-command developer bootstrap.
+8.12 Local development requirements
+The application must run locally with a documented few-command developer bootstrap (`podman compose up` for PostgreSQL, then `pnpm dev`).
 
-The application must be deployable on a Debian host using Podman containers.
-
-Web app, PostgreSQL, and Keycloak must run as separate services.
-
-Secrets must be externalized from source control. [web:216][web:215][web:208]
+Secrets must be externalized from source control via `.env`. [web:216][web:215][web:208]
 
 8.13 Comparison-readiness requirements
 The starter repository must be able to run the same functional slices through two generation paths and preserve:

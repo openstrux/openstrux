@@ -1,0 +1,10 @@
+// B001 Prisma baseline — GrantApplication model
+
+model GrantApplication {
+  id          String   @id @default(cuid())
+  title       String
+  amount      Float
+  status      String
+  submittedAt DateTime
+  applicantId String
+}

@@ -14,32 +14,35 @@ The demo has three audiences:
 - Pre-written unit + integration tests (vitest) as acceptance criteria
 - Backend generation change defined but not executed — this is what the two paths implement
 - Two prompt sets: baseline (direct Next.js + Prisma) and openstrux (`.strux` -> compile -> TS)
-- Scripts: `save-result.sh` (zip + benchmark JSON + manual input), `reset.sh` (restore initial state), `view-results.sh` (start results viewer)
-- Results viewer page in the frontend for navigating comparison data
+- `benchmark.config.json` — machine-readable description of paths, specs, tasks, test commands
+- `scripts/reset.sh` — restore initial state; `output/` reference copies; `results/` run archives
+- Automated unit test execution as benchmark score; integration tests opt-in via `--with-db`
 - `.strux` source files for P0-P2 demonstrating context cascade + shorthand panels
 
 **Non-Goals:**
 - P3-P6 implementation (deferred to v0.7.0)
-- Automated test execution as part of the generation benchmark (tests are run manually)
 - Production deployment
 
 ## Decisions
 
-**Starter repo structure follows `UseCaseRequirements.md` §8.7**
+**Use-case repo is pure baseline + thin config**
+
+The uc repo contains only what defines the benchmark task and stores its outcomes:
 ```
 openstrux-uc-grant-workflow/
   docs/
   specs/                    # Domain model, workflow states, access policies
   prompts/
     shared/                 # Common system prompt and constraints
-    baseline/               # Per-phase prompts for direct TS generation
-    openstrux/              # Per-phase prompts for .strux generation
+    direct/                 # Path-specific: generate TS directly
+    openstrux/              # Path-specific: generate .strux + compile
   openspec/
     changes/
       frontend/             # Archived: completed Next.js frontend
       backend-generation/   # Defined: the task both paths execute
       tests/                # Archived: vitest unit + integration tests
-  app/web/                  # Next.js app (frontend pre-built)
+      benchmark-runner/     # Defined: runner + save-result (lives in openstrux)
+  app/web/                  # Next.js app (frontend pre-built, no results page)
   packages/
     domain/                 # Typed entities and value objects
     policies/               # Eligibility, access, retention, workflow rules
@@ -47,14 +50,31 @@ openstrux-uc-grant-workflow/
   tests/
     unit/
     integration/
-  results/                  # Benchmark run outputs (JSON + zips)
-  scripts/
-    save-result.sh
-    reset.sh
-    view-results.sh
+  benchmark.config.json     # Paths, specs, tasks, test commands (read by runner)
+  results/                  # Benchmark run outputs (JSON + zips) — source of truth
   output/
-    baseline/               # Generated files from direct-TS path
-    openstrux/              # Generated files from .strux path
+    direct/                 # Reference copy of last direct-path run
+    openstrux/              # Reference copy of last openstrux-path run
+  scripts/
+    reset.sh                # Restore initial state
+```
+
+**Runner and viewer live in the openstrux hub repo**
+```
+openstrux/
+  benchmarks/
+    runner/
+      run-benchmark.sh      # Orchestrator: --uc <repo> --path <path> [--with-db]
+      generate-api.ts       # Prompt assembly + Anthropic API + file writer
+      save-result.sh        # Non-interactive archival (git diff → output/ + zip)
+    viewer/
+      generate-report.ts    # Static HTML report generator
+      report.html           # Generated output (gitignored)
+    viewer.config.json      # List of uc repos and their results paths
+    model/index.ts          # BenchmarkResult schema (shared by runner + viewer)
+    package.json            # Node >= 24, no SDK deps
+  scripts/
+    view-results.sh         # Generates report.html and opens in browser
 ```
 
 **Frontend is pre-built, not generated**
@@ -63,17 +83,18 @@ The frontend (forms, navigation, workflow screens) is already implemented as an 
 **Tests are pre-written, not generated**
 Unit and integration tests are an archived change. They define the acceptance criteria that both generated backends must pass. This makes the comparison fair.
 
-**save-result.sh workflow**
-1. Zips all files in `output/<path>/` (where path is `baseline` or `openstrux`)
-2. Creates `results/<date>-<path>/benchmark.json` with auto-populated fields: `timestamp`, `generatedFileCount`, `totalLines`
-3. Prompts operator for: `llm` (model used), `manualTestResults` (pass/fail summary), `resultNote` (overall assessment), `feedback` (free text)
-4. Stores zip + JSON in `results/`
+**Benchmark run workflow**
+`run-benchmark.sh --uc ../openstrux-uc-grant-workflow --path direct` orchestrates the full run in the openstrux repo: creates a git worktree in the uc repo, calls `generate-api.ts` (Anthropic API, clean context, reads `benchmark.config.json`), runs unit tests, calls `save-result.sh`, removes the worktree. Results land in the uc repo's `results/<slug>/`.
+
+`save-result.sh` (non-interactive): detects generated files via `git diff --name-only HEAD` in the worktree, copies to `output/<path>/` in the uc repo, zips to `results/<slug>/generated.zip`, writes `benchmark.json`. No manual prompts.
+
+Optional `--with-db` spins up ephemeral Docker Postgres for integration tests; counts recorded in `testSuites.integration`.
 
 **reset.sh restores initial state**
-Uses `git checkout` to restore the repo to the state after frontend + tests changes but before any backend generation. Clears `output/baseline/` and `output/openstrux/`.
+Clears generated output, `.strux` files, and `output/` directories. Does not touch `results/` (archives are kept).
 
-**Results viewer is a simple frontend page**
-A `/results` page in the Next.js app that reads `results/*/benchmark.json` files and displays a table: date, path (baseline/openstrux), LLM, token counts, time, test results, notes. Sortable and filterable. Already implemented as part of the frontend archived change.
+**Static results viewer**
+`scripts/view-results.sh` (in openstrux) runs `generate-report.ts`, which reads `viewer.config.json`, aggregates `results/*/benchmark.json` from all configured uc repos, and writes a self-contained `report.html`. No server — open in any browser. Add new uc repos to `viewer.config.json` to include them in the report.
 
 **Token optimization: context cascade + shorthand panels**
 The `.strux` source files follow the token-efficient pattern:

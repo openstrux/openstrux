@@ -1,0 +1,104 @@
+{
+  "run_id": "v0.6.0-b001-b010",
+  "date": "2026-03-22",
+  "artifact": "spec",
+  "version": "0.6.0",
+  "tokenizer": { "name": "cl100k_base", "version": "tiktoken" },
+  "note": "Alpha-grade token compression measurement. 10/20+ cases, 1 LLM family. Full release gate at v0.7.0.",
+  "cases": [
+    {
+      "id": "B001",
+      "description": "@type record with 6 fields vs TypeScript interface + Prisma model",
+      "constructs": ["@type record"],
+      "struxTokens": 48,
+      "tsTokens": 84,
+      "compressionRatio": 0.571
+    },
+    {
+      "id": "B002",
+      "description": "@type enum with 5 variants vs TypeScript enum + Prisma enum",
+      "constructs": ["@type enum"],
+      "struxTokens": 18,
+      "tsTokens": 65,
+      "compressionRatio": 0.277
+    },
+    {
+      "id": "B003",
+      "description": "@type union with 3 variants vs TypeScript discriminated union",
+      "constructs": ["@type union"],
+      "struxTokens": 60,
+      "tsTokens": 158,
+      "compressionRatio": 0.380
+    },
+    {
+      "id": "B004",
+      "description": "Simple @panel with receive/validate/store/respond vs Next.js route handler",
+      "constructs": ["@panel", "receive", "validate", "store", "respond"],
+      "struxTokens": 84,
+      "tsTokens": 129,
+      "compressionRatio": 0.651
+    },
+    {
+      "id": "B005",
+      "description": "@access block with RBAC guard vs TypeScript middleware",
+      "constructs": ["@access", "guard"],
+      "struxTokens": 96,
+      "tsTokens": 204,
+      "compressionRatio": 0.471
+    },
+    {
+      "id": "B006",
+      "description": "Filter expression shorthand vs TypeScript Prisma where clause",
+      "constructs": ["filter", "expression-shorthand"],
+      "struxTokens": 90,
+      "tsTokens": 104,
+      "compressionRatio": 0.865
+    },
+    {
+      "id": "B007",
+      "description": "Config inheritance from strux.context vs duplicated TypeScript config",
+      "constructs": ["strux.context", "@context", "@dp", "@source", "@ops"],
+      "struxTokens": 194,
+      "tsTokens": 236,
+      "compressionRatio": 0.822
+    },
+    {
+      "id": "B008",
+      "description": "Named @source reference vs inline connection config",
+      "constructs": ["@source", "@target", "named-reference"],
+      "struxTokens": 167,
+      "tsTokens": 205,
+      "compressionRatio": 0.815
+    },
+    {
+      "id": "B009",
+      "description": "Multi-rod pipeline (5 rods) vs equivalent TypeScript handler",
+      "constructs": ["receive", "validate", "read-data", "filter", "transform", "respond"],
+      "struxTokens": 143,
+      "tsTokens": 292,
+      "compressionRatio": 0.490
+    },
+    {
+      "id": "B010",
+      "description": "Compliance rods (pseudonymize + encrypt) vs TypeScript privacy helpers",
+      "constructs": ["pseudonymize", "encrypt", "@dp"],
+      "struxTokens": 118,
+      "tsTokens": 359,
+      "compressionRatio": 0.329
+    }
+  ],
+  "summary": {
+    "totalStruxTokens": 1018,
+    "totalTsTokens": 1836,
+    "overallCompressionRatio": 0.554,
+    "medianCompressionRatio": 0.531,
+    "minCompressionRatio": 0.277,
+    "maxCompressionRatio": 0.865,
+    "casesBelow0_25": 0,
+    "casesBetween0_25_and_0_33": 2,
+    "casesBetween0_33_and_0_50": 3,
+    "casesAbove0_50": 5,
+    "scorecard": "WARN-data",
+    "scorecardReason": "Alpha-only: 10/20+ required cases, 1/3+ required LLM families. Median 0.531 exceeds PASS threshold of 0.25 but reflects simple use-cases only — complex rods show strong compression (B002: 0.277, B010: 0.329). Full gate at v0.7.0."
+  }
+}

@@ -16,13 +16,18 @@ The repository is initialized with three **archived changes** (already completed
 
 ### Prompts folder
 
-Two prompt sets in `prompts/`:
-- `prompts/baseline/` — "Apply this change using Next.js + Prisma directly"
-- `prompts/openstrux/` — "Apply this change using `.strux` panels, then compile to TypeScript" with links to strux documentation in the openstrux-spec and openstrux-core repos
+Prompt structure in `prompts/`:
+- `prompts/shared/` — LLM context: system prompt, constraints, task format
+- `prompts/direct/` — Path-specific: "generate TypeScript directly using Next.js + Prisma"
+- `prompts/openstrux/` — Path-specific: "generate `.strux` panels, then compile to TypeScript" with links to strux documentation in the openstrux-spec and openstrux-core repos
+
+Both paths reference the same functional specifications from `specs/` (domain model, workflow states, access policies).
 
 ### Scripts
 
-- `scripts/save-result.sh` — Zips the generated backend files, creates a benchmark entry JSON, asks for manual input (LLM used, manual test results, global result note, feedback), stores all in `results/`
+- `scripts/run-benchmark.sh` — Orchestrates a full benchmark run: git worktree, Claude API generation, unit tests, result archival, worktree cleanup. Optional `--with-db` for integration tests via ephemeral Docker Postgres.
+- `scripts/generate-api.ts` — Assembles prompts + specs, calls Claude API with clean context, parses fenced-block response, writes files in-tree
+- `scripts/save-result.sh` — Non-interactive archival: detects generated files via git diff, copies to `output/<path>/`, zips to `results/`, writes `benchmark.json` from CLI args
 - `scripts/reset.sh` — Restores the repo to initial state (frontend + tests, no backend) for a new test run
 - `scripts/view-results.sh` — Starts a local dev server for the results viewer
 

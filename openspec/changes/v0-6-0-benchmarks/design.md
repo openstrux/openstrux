@@ -15,7 +15,6 @@ The v0.6.0 scorecard is a partial run: one LLM family, 10 cases, grant-workflow 
 **Non-Goals:**
 - Running benchmarks against multiple LLM families (v0.7.0)
 - B011-B030 (composition, certification/audit, translation, performance categories)
-- Automated benchmark runner (cases are run manually for v0.6.0)
 
 ## Decisions
 
@@ -25,11 +24,10 @@ Each case is a small, self-contained problem that exercises one or two construct
 **Token counting: tiktoken cl100k_base**
 Same tokeniser for all measurements. Ensures demo ratio and benchmark ratio are comparable.
 
-**Grant-workflow generation benchmark: two-prompt comparison**
-After the grant-workflow `.strux` sources are written, create two prompts:
-- **Direct-TS prompt**: "Given this spec, generate the TypeScript implementation using Next.js + Prisma"
-- **Strux prompt**: "Given this spec, generate the `.strux` panels, then compile to TypeScript"
-Both prompts use the same functional specification (from `UseCaseRequirements.md`). Measure: input tokens (prompt size), output tokens (generated code), wall-clock time, and repair iterations needed.
+**Grant-workflow generation benchmark: automated two-path comparison**
+Prompts already exist in `openstrux-uc-grant-workflow/prompts/` — `direct/generate.md` and `openstrux/generate.md`, both using the same functional specs from `specs/`. Both paths are executed by the benchmark runner (`openstrux/benchmarks/runner/run-benchmark.sh --uc ../openstrux-uc-grant-workflow --path <direct|openstrux>`), which isolates each run in a git worktree, calls the Anthropic API with a clean context, runs unit tests, and archives results to `openstrux-uc-grant-workflow/results/<slug>/benchmark.json`.
+
+Metrics captured per run: `generatedFileCount`, `totalLines`, `inputTokens`, `outputTokens`, `timeSeconds`, `testSuites.unit.*`, `promptVersion`, `llm`. Token and time metrics are captured from the Anthropic streaming SSE response — `input_tokens` from the `message_start` event, `output_tokens` from the `message_delta` event, written to `generation-meta.json` by `generate-api.ts` and read by `save-result.sh`. Metric deferred to follow-up: `repairIterations`.
 
 **Scorecard format: per MANIFESTO_OBJECTIVES.md**
 PASS/WARN/FAIL per principle. WARN-data (incomplete measurement) is acceptable for alpha; WARN-result (below threshold) requires a remediation plan.
@@ -42,8 +40,8 @@ The manifesto requires 20+ benchmark cases across 3+ LLM families for a full Pri
 **[Risk] 10 cases is below the 20-case minimum for a full release gate**
 -> Mitigation: v0.6.0 is alpha. Scorecard notes "partial benchmark run — full gate at v0.7.0".
 
-**[Risk] Manual LLM runs are not reproducible**
--> Mitigation: Prompts committed verbatim; model version and temperature recorded in result JSON.
+**[Risk] Grant-workflow generation comparison is sensitive to model non-determinism**
+-> Mitigation: Results are archived with `promptVersion` (git hash of prompts/) and `llm` fields, making runs reproducible. Single run per path for v0.6.0 alpha.
 
 **[Risk] Grant-workflow generation comparison is sensitive to prompt wording**
 -> Mitigation: Both prompts use identical functional spec. Only the target instruction differs. Prompt text committed and versioned.

@@ -1,0 +1,9 @@
+// B002 Prisma baseline — GrantStatus enum
+
+enum GrantStatus {
+  draft
+  submitted
+  under_review
+  approved
+  rejected
+}
