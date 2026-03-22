@@ -13,16 +13,18 @@ This repo is the canonical home for the Openstrux manifesto, governance, benchma
 ## Folder guide
 
 ```
-docs/manifesto/     Manifesto, objectives, and benchmark policy — normative for all review decisions
-docs/architecture/  Cross-repo architecture diagrams and notes
-docs/roadmap/       Release plans, milestone tracking, and backlog (unversioned future work pool)
-docs/use-cases/     Per-use-case requirements (grant-workflow = privacy-first grant review workflow)
-benchmarks/cases/   Benchmark case definitions per MANIFESTO_BENCHMARKS.md (B001–B030+)
-benchmarks/baselines/ Hand-written reference implementations (Beam Python, TypeScript)
-benchmarks/results/ Dated benchmark run outputs and scorecards
-governance/         Contribution policy, RFC process, release gate rules
-demos/              Self-contained runnable examples
-tmp/                Working drafts only — promote to openstrux-spec via change-package
+docs/manifesto/          Manifesto, objectives, and benchmark policy — normative for all review decisions
+docs/architecture/       Cross-repo architecture diagrams and notes
+docs/roadmap/            Release plans, milestone tracking, and backlog (unversioned future work pool)
+docs/use-cases/          Per-use-case requirements (grant-workflow = privacy-first grant review workflow)
+docs/getting-started.md  End-to-end onboarding: install CLI → strux init → build → import
+docs/migration/          Migration guides (e.g. from-loose-files.md for v0.5 → v0.6)
+benchmarks/cases/        Benchmark case definitions per MANIFESTO_BENCHMARKS.md (B001–B030+)
+benchmarks/baselines/    Hand-written reference implementations (Beam Python, TypeScript)
+benchmarks/results/      Dated benchmark run outputs and scorecards
+governance/              Contribution policy, RFC process, release gate rules
+demos/                   Self-contained runnable examples
+tmp/                     Working drafts only — promote to openstrux-spec via change-package
 ```
 
 ## Key rules
