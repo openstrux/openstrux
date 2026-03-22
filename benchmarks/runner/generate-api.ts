@@ -303,28 +303,23 @@ function buildRetryPrompt(result: TestRunResult, attempt: number): string {
     byFile.get(f.file)!.push(f);
   }
 
-  const lines: string[] = [
-    `Tests are still failing (${result.passed}/${result.total} passing, attempt ${attempt}/${maxRetries}).`,
-    ``,
-    `Fix the generated code so all tests pass. Rules:`,
-    `- Do NOT modify test files.`,
-    `- Output only the files that need changes, using the standard fenced-block format.`,
-    `- If you output a file, include its complete corrected content.`,
-    ``,
-    `## Failing tests`,
-    ``,
-  ];
-
+  const failureLines: string[] = [];
   for (const [file, fileFailures] of byFile) {
-    lines.push(`### ${file} (${fileFailures.length} failed)`);
+    failureLines.push(`### ${file} (${fileFailures.length} failed)`);
     for (const f of fileFailures) {
-      lines.push(`- **${f.testName}**`);
-      lines.push(`  \`${f.error}\``);
+      failureLines.push(`- **${f.testName}**`);
+      failureLines.push(`  \`${f.error}\``);
     }
-    lines.push("");
+    failureLines.push("");
   }
 
-  return lines.join("\n");
+  const template = read("prompts/shared/retry.md");
+  return template
+    .replace("{{passed}}", String(result.passed))
+    .replace("{{total}}", String(result.total))
+    .replace("{{attempt}}", String(attempt))
+    .replace("{{maxRetries}}", String(maxRetries))
+    .replace("{{failures}}", failureLines.join("\n"));
 }
 
 // ---------------------------------------------------------------------------
