@@ -2,22 +2,25 @@
 /**
  * generate-api.ts — Benchmark generation via Anthropic Messages API.
  *
- * Assembles prompts + specs (order and paths read from benchmark.config.json
- * in the worktree root), calls the API with a clean context, parses fenced
- * code blocks, and writes files at their natural in-tree paths.
+ * Assembles prompts + specs, calls the API with a clean context, parses fenced
+ * code blocks, writes files at their natural in-tree paths, then runs unit tests.
+ * If tests fail, sends a follow-up turn with the failure details and tries again,
+ * up to maxRetries times (configured in benchmark.config.json or --max-retries).
  *
  * Usage:
  *   node --experimental-strip-types generate-api.ts \
  *     --path <direct|openstrux> \
  *     --model <model-id> \
  *     --worktree <abs-path> \
- *     --result-dir <abs-path>
+ *     --result-dir <abs-path> \
+ *     [--max-retries <n>]
  *
  * Requires: ANTHROPIC_API_KEY env var, Node >= 24
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { execSync } from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // CLI args
@@ -35,7 +38,7 @@ const resultDir = arg("--result-dir") ? resolve(arg("--result-dir")!) : undefine
 
 if (!pathArg || !["direct", "openstrux"].includes(pathArg)) {
   console.error(
-    "Usage: generate-api.ts --path <direct|openstrux> [--model <id>] [--worktree <dir>] [--result-dir <dir>]",
+    "Usage: generate-api.ts --path <direct|openstrux> [--model <id>] [--worktree <dir>] [--result-dir <dir>] [--max-retries <n>]",
   );
   process.exit(1);
 }
@@ -56,6 +59,7 @@ interface BenchmarkConfig {
   tasks: string;
   testUnit: string;
   testIntegration: string;
+  maxRetries?: number;
 }
 
 const configPath = join(worktree, "benchmark.config.json");
@@ -64,6 +68,11 @@ if (!existsSync(configPath)) {
   process.exit(1);
 }
 const config = JSON.parse(readFileSync(configPath, "utf-8")) as BenchmarkConfig;
+
+// --max-retries CLI flag overrides benchmark.config.json, which overrides default (5)
+const maxRetries = arg("--max-retries") !== undefined
+  ? parseInt(arg("--max-retries")!, 10)
+  : (config.maxRetries ?? 5);
 
 // ---------------------------------------------------------------------------
 // Prompt assembly
@@ -101,20 +110,49 @@ if (pathArg === "openstrux") {
   }
 }
 
-const prompt = parts.join("\n\n---\n\n");
-console.log(`[generate-api] path=${pathArg} model=${modelArg}`);
-console.log(`[generate-api] prompt: ${prompt.length} chars / ~${Math.round(prompt.length / 4)} tokens`);
+const initialPrompt = parts.join("\n\n---\n\n");
+console.log(`[generate-api] path=${pathArg} model=${modelArg} maxRetries=${maxRetries}`);
+console.log(`[generate-api] prompt: ${initialPrompt.length} chars / ~${Math.round(initialPrompt.length / 4)} tokens`);
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface Message {
+  role: "user" | "assistant";
+  content: string;
+}
+
+interface APIResult {
+  response: string;
+  inputTokens: number;
+  outputTokens: number;
+  timeSeconds: number;
+  files: Array<{ path: string; content: string }>;
+  gaps: string[];
+}
+
+interface TestFailure {
+  file: string;
+  testName: string;
+  error: string;
+}
+
+interface TestRunResult {
+  total: number;
+  passed: number;
+  failed: number;
+  failures: TestFailure[];
+}
 
 // ---------------------------------------------------------------------------
 // API call (streaming SSE via native fetch)
 // ---------------------------------------------------------------------------
 
-async function generate(): Promise<void> {
+async function callAPI(messages: Message[]): Promise<APIResult> {
   let response = "";
   let inputTokens = 0;
   let outputTokens = 0;
-
-  console.log("[generate-api] Calling Anthropic API (streaming)...\n");
 
   const startMs = Date.now();
 
@@ -129,7 +167,7 @@ async function generate(): Promise<void> {
       model:      modelArg,
       max_tokens: 32000,
       stream:     true,
-      messages:   [{ role: "user", content: prompt }],
+      messages,
     }),
   });
 
@@ -156,11 +194,9 @@ async function generate(): Promise<void> {
           usage?:   { input_tokens?: number; output_tokens?: number };
           delta?:   { type: string; text?: string };
         };
-        // message_start carries input_tokens
         if (evt.type === "message_start" && evt.message?.usage) {
           inputTokens = evt.message.usage.input_tokens ?? 0;
         }
-        // message_delta carries the final output_tokens count
         if (evt.type === "message_delta" && evt.usage) {
           outputTokens = evt.usage.output_tokens ?? 0;
         }
@@ -174,45 +210,121 @@ async function generate(): Promise<void> {
 
   const timeSeconds = (Date.now() - startMs) / 1000;
 
-  console.log("\n\n[generate-api] Generation complete.");
-  console.log(`[generate-api] tokens — input: ${inputTokens}  output: ${outputTokens}  time: ${timeSeconds.toFixed(1)}s`);
+  return {
+    response,
+    inputTokens,
+    outputTokens,
+    timeSeconds,
+    files: parseFencedBlocks(response),
+    gaps:  parseGaps(response),
+  };
+}
 
-  if (resultDir) {
-    mkdirSync(resultDir, { recursive: true });
-    writeFileSync(join(resultDir, "response.txt"), response, "utf-8");
-  }
+// ---------------------------------------------------------------------------
+// File writing
+// ---------------------------------------------------------------------------
 
-  // Parse and write files
-  const files = parseFencedBlocks(response);
-  console.log(`[generate-api] Parsed ${files.length} file(s).`);
-
-  if (files.length === 0) {
-    console.error("[generate-api] No files parsed — check result-dir/response.txt");
-    process.exit(1);
-  }
-
+function writeFiles(files: Array<{ path: string; content: string }>): void {
   for (const { path, content } of files) {
     const abs = join(worktree, path);
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, content, "utf-8");
     console.log(`[generate-api]   wrote: ${path}`);
   }
+}
 
-  // Gaps
-  const gaps = parseGaps(response);
-  if (gaps.length > 0 && resultDir) {
-    writeFileSync(join(resultDir, "gaps.json"), JSON.stringify(gaps, null, 2), "utf-8");
-    console.log(`[generate-api] ${gaps.length} gap(s) → gaps.json`);
+// ---------------------------------------------------------------------------
+// Test runner
+// ---------------------------------------------------------------------------
+
+function runTests(attempt: number): TestRunResult {
+  const testJsonPath = resultDir
+    ? join(resultDir, `test-attempt-${attempt}.json`)
+    : join(worktree, `.bench-test-${attempt}.json`);
+
+  const testCmd = `${config.testUnit} --reporter=json --outputFile=${testJsonPath}`;
+
+  try {
+    execSync(testCmd, { cwd: worktree, stdio: "pipe" });
+  } catch {
+    // Non-zero exit when tests fail — expected, we'll read the JSON
   }
 
-  // Write generation metadata for save-result.sh
-  if (resultDir) {
-    writeFileSync(
-      join(resultDir, "generation-meta.json"),
-      JSON.stringify({ fileCount: files.length, model: modelArg, inputTokens, outputTokens, timeSeconds }, null, 2),
-      "utf-8",
-    );
+  if (!existsSync(testJsonPath)) {
+    console.warn(`[generate-api] No test JSON at ${testJsonPath} — treating as 0/0`);
+    return { total: 0, passed: 0, failed: 0, failures: [] };
   }
+
+  const data = JSON.parse(readFileSync(testJsonPath, "utf-8")) as {
+    numTotalTests?: number;
+    numPassedTests?: number;
+    numFailedTests?: number;
+    testResults?: Array<{
+      testFilePath?: string;
+      testResults?: Array<{
+        title?: string;
+        ancestorTitles?: string[];
+        status?: string;
+        failureMessages?: string[];
+      }>;
+    }>;
+  };
+
+  const failures: TestFailure[] = [];
+
+  for (const suite of data.testResults ?? []) {
+    const shortPath = (suite.testFilePath ?? "").replace(worktree + "/", "");
+    for (const test of suite.testResults ?? []) {
+      if (test.status === "failed") {
+        const ancestors = test.ancestorTitles?.join(" > ") ?? "";
+        const testName  = ancestors ? `${ancestors} > ${test.title ?? ""}` : (test.title ?? "");
+        const firstLine = test.failureMessages?.[0]?.split("\n").find((l) => l.trim()) ?? "unknown error";
+        failures.push({ file: shortPath, testName, error: firstLine.trim() });
+      }
+    }
+  }
+
+  return {
+    total:   data.numTotalTests  ?? 0,
+    passed:  data.numPassedTests ?? 0,
+    failed:  data.numFailedTests ?? 0,
+    failures,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Retry prompt builder
+// ---------------------------------------------------------------------------
+
+function buildRetryPrompt(result: TestRunResult, attempt: number): string {
+  const byFile = new Map<string, TestFailure[]>();
+  for (const f of result.failures) {
+    if (!byFile.has(f.file)) byFile.set(f.file, []);
+    byFile.get(f.file)!.push(f);
+  }
+
+  const lines: string[] = [
+    `Tests are still failing (${result.passed}/${result.total} passing, attempt ${attempt}/${maxRetries}).`,
+    ``,
+    `Fix the generated code so all tests pass. Rules:`,
+    `- Do NOT modify test files.`,
+    `- Output only the files that need changes, using the standard fenced-block format.`,
+    `- If you output a file, include its complete corrected content.`,
+    ``,
+    `## Failing tests`,
+    ``,
+  ];
+
+  for (const [file, fileFailures] of byFile) {
+    lines.push(`### ${file} (${fileFailures.length} failed)`);
+    for (const f of fileFailures) {
+      lines.push(`- **${f.testName}**`);
+      lines.push(`  \`${f.error}\``);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +348,6 @@ function parseFencedBlocks(text: string): Array<{ path: string; content: string 
     if (!pathMatch) continue;
 
     const filePath = pathMatch[1].trim();
-    // Safety: relative in-tree paths only
     if (!filePath || filePath.startsWith("/") || filePath.includes("..") || !filePath.includes("/")) continue;
 
     files.push({ path: filePath, content });
@@ -255,10 +366,131 @@ function parseGaps(text: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Main: generate + retry loop
+// ---------------------------------------------------------------------------
+
+async function run(): Promise<void> {
+  if (resultDir) mkdirSync(resultDir, { recursive: true });
+
+  const messages: Message[] = [];
+  let totalInputTokens  = 0;
+  let totalOutputTokens = 0;
+  let totalTimeSeconds  = 0;
+  let retries           = 0;
+  let allFiles: Array<{ path: string; content: string }> = [];
+  let lastGaps: string[] = [];
+
+  // ── Initial generation ────────────────────────────────────────────────────
+
+  console.log("\n[generate-api] === Attempt 0: initial generation ===\n");
+  messages.push({ role: "user", content: initialPrompt });
+
+  const initial = await callAPI(messages);
+  console.log(`\n\n[generate-api] Generation complete.`);
+  console.log(`[generate-api] tokens — input: ${initial.inputTokens}  output: ${initial.outputTokens}  time: ${initial.timeSeconds.toFixed(1)}s`);
+
+  messages.push({ role: "assistant", content: initial.response });
+
+  if (resultDir) writeFileSync(join(resultDir, "response-attempt-0.txt"), initial.response, "utf-8");
+
+  if (initial.files.length === 0) {
+    console.error("[generate-api] No files parsed from initial response — check response-attempt-0.txt");
+    process.exit(1);
+  }
+
+  console.log(`[generate-api] Parsed ${initial.files.length} file(s).`);
+  writeFiles(initial.files);
+
+  totalInputTokens  += initial.inputTokens;
+  totalOutputTokens += initial.outputTokens;
+  totalTimeSeconds  += initial.timeSeconds;
+  allFiles           = initial.files;
+  lastGaps           = initial.gaps;
+
+  // ── Retry loop ────────────────────────────────────────────────────────────
+
+  let finalTestResult: TestRunResult | null = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    console.log(`\n[generate-api] === Running unit tests (after attempt ${attempt - 1}) ===`);
+    const testResult = runTests(attempt - 1);
+    console.log(`[generate-api] Tests: ${testResult.passed}/${testResult.total} passing, ${testResult.failed} failing`);
+    finalTestResult = testResult;
+
+    if (testResult.failures.length === 0) {
+      console.log("[generate-api] All tests pass — stopping retries.");
+      break;
+    }
+
+    retries++;
+    console.log(`\n[generate-api] === Retry ${attempt}/${maxRetries} ===\n`);
+
+    const retryPrompt = buildRetryPrompt(testResult, attempt);
+    messages.push({ role: "user", content: retryPrompt });
+
+    const retry = await callAPI(messages);
+    console.log(`\n\n[generate-api] Retry ${attempt} complete.`);
+    console.log(`[generate-api] tokens — input: ${retry.inputTokens}  output: ${retry.outputTokens}  time: ${retry.timeSeconds.toFixed(1)}s`);
+
+    messages.push({ role: "assistant", content: retry.response });
+
+    if (resultDir) writeFileSync(join(resultDir, `response-attempt-${attempt}.txt`), retry.response, "utf-8");
+
+    if (retry.files.length > 0) {
+      console.log(`[generate-api] Parsed ${retry.files.length} file(s) in retry.`);
+      writeFiles(retry.files);
+      // Merge: retry may only return changed files
+      for (const f of retry.files) {
+        const idx = allFiles.findIndex((e) => e.path === f.path);
+        if (idx !== -1) allFiles[idx] = f; else allFiles.push(f);
+      }
+      if (retry.gaps.length > 0) lastGaps = retry.gaps;
+    } else {
+      console.warn(`[generate-api] No files parsed in retry ${attempt} — keeping previous output.`);
+    }
+
+    totalInputTokens  += retry.inputTokens;
+    totalOutputTokens += retry.outputTokens;
+    totalTimeSeconds  += retry.timeSeconds;
+  }
+
+  // Run tests one final time if we exhausted retries without a clean pass
+  if (finalTestResult === null || finalTestResult.failures.length > 0) {
+    console.log(`\n[generate-api] === Final test run ===`);
+    finalTestResult = runTests(maxRetries);
+    console.log(`[generate-api] Final: ${finalTestResult.passed}/${finalTestResult.total} passing`);
+  }
+
+  // ── Save metadata and gaps ────────────────────────────────────────────────
+
+  if (lastGaps.length > 0 && resultDir) {
+    writeFileSync(join(resultDir, "gaps.json"), JSON.stringify(lastGaps, null, 2), "utf-8");
+    console.log(`[generate-api] ${lastGaps.length} gap(s) → gaps.json`);
+  }
+
+  if (resultDir) {
+    writeFileSync(
+      join(resultDir, "generation-meta.json"),
+      JSON.stringify({
+        fileCount:    allFiles.length,
+        model:        modelArg,
+        inputTokens:  totalInputTokens,
+        outputTokens: totalOutputTokens,
+        timeSeconds:  totalTimeSeconds,
+        retries,
+        finalPassed:  finalTestResult?.passed  ?? 0,
+        finalTotal:   finalTestResult?.total   ?? 0,
+      }, null, 2),
+      "utf-8",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
 
-generate().catch((err: unknown) => {
+run().catch((err: unknown) => {
   console.error("[generate-api] Fatal:", err instanceof Error ? err.message : err);
   process.exit(1);
 });

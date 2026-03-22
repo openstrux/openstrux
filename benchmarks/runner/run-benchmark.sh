@@ -32,20 +32,22 @@ PATH_NAME=""
 MODEL="claude-sonnet-4-6"
 WITH_DB=false
 NOTE=""
+MAX_RETRIES=""   # empty = let generate-api read from benchmark.config.json
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --uc)      UC_ROOT="$2";    shift 2 ;;
-    --path)    PATH_NAME="$2";  shift 2 ;;
-    --model)   MODEL="$2";      shift 2 ;;
-    --with-db) WITH_DB=true;    shift ;;
-    --note)    NOTE="$2";       shift 2 ;;
+    --uc)          UC_ROOT="$2";     shift 2 ;;
+    --path)        PATH_NAME="$2";   shift 2 ;;
+    --model)       MODEL="$2";       shift 2 ;;
+    --with-db)     WITH_DB=true;     shift ;;
+    --note)        NOTE="$2";        shift 2 ;;
+    --max-retries) MAX_RETRIES="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
 
 if [[ -z "$UC_ROOT" || -z "$PATH_NAME" ]]; then
-  echo "Usage: run-benchmark.sh --uc <uc-repo> --path <direct|openstrux> [--model <id>] [--with-db] [--note <string>]"
+  echo "Usage: run-benchmark.sh --uc <uc-repo> --path <direct|openstrux> [--model <id>] [--with-db] [--note <string>] [--max-retries <n>]"
   exit 1
 fi
 
@@ -87,6 +89,7 @@ echo " use-case repo : $UC_ROOT"
 echo " path          : $PATH_NAME"
 echo " model         : $MODEL"
 echo " with-db       : $WITH_DB"
+echo " max-retries   : ${MAX_RETRIES:-from config}"
 echo " worktree      : $WORKTREE_DIR"
 echo " results       : $RESULT_DIR"
 echo "============================================================"
@@ -133,11 +136,15 @@ echo ""
 # ---------------------------------------------------------------------------
 
 echo "=== Step 3: Generate (${PATH_NAME}) ==="
+RETRIES_ARG=()
+[[ -n "$MAX_RETRIES" ]] && RETRIES_ARG=(--max-retries "$MAX_RETRIES")
+
 node --experimental-strip-types "$RUNNER_DIR/generate-api.ts" \
-  --path      "$PATH_NAME" \
-  --model     "$MODEL" \
-  --worktree  "$WORKTREE_DIR" \
-  --result-dir "$RESULT_DIR"
+  --path       "$PATH_NAME" \
+  --model      "$MODEL" \
+  --worktree   "$WORKTREE_DIR" \
+  --result-dir "$RESULT_DIR" \
+  "${RETRIES_ARG[@]}"
 echo ""
 
 # For the openstrux path: run strux build
@@ -157,14 +164,14 @@ TEST_JSON="$RESULT_DIR/test-unit.json"
 TEST_EXIT=0
 
 # Read test command from benchmark.config.json
-TEST_CMD="$(node --input-type=module <<'JS'
+TEST_CMD="$(node --input-type=module <<JS
 import { readFileSync } from "node:fs";
 const c = JSON.parse(readFileSync("$WORKTREE_DIR/benchmark.config.json", "utf-8"));
 process.stdout.write(c.testUnit ?? "pnpm test:unit");
 JS
 )"
 
-(cd "$WORKTREE_DIR" && eval "$TEST_CMD -- --reporter=json --outputFile=$TEST_JSON" 2>&1 \
+(cd "$WORKTREE_DIR" && eval "$TEST_CMD --reporter=json --outputFile=$TEST_JSON" 2>&1 \
   | tee "$RESULT_DIR/test-unit.log") || TEST_EXIT=$?
 
 [[ $TEST_EXIT -ne 0 ]] && echo "Unit tests had failures — results recorded" || echo "Unit tests passed"

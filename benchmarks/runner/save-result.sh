@@ -115,7 +115,17 @@ fi
 
 GENERATED_ZIP="$RESULT_DIR/generated.zip"
 if [[ "${FILE_COUNT}" -gt 0 ]]; then
-  (cd "$OUTPUT_REF" && zip -r "$GENERATED_ZIP" . -x '*.DS_Store' >/dev/null)
+  python3 -c "
+import zipfile, os, sys
+src = sys.argv[1]; out = sys.argv[2]
+with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zf:
+    for root, dirs, files in os.walk(src):
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        for f in files:
+            if f == '.DS_Store': continue
+            fp = os.path.join(root, f)
+            zf.write(fp, os.path.relpath(fp, src))
+" "$OUTPUT_REF" "$GENERATED_ZIP"
   echo "Zipped → generated.zip"
 fi
 
@@ -125,8 +135,20 @@ fi
 
 PROMPTS_ZIP="$RESULT_DIR/prompts.zip"
 PROMPT_VERSION="$(cd "$WORKTREE" && git log -1 --format=%h -- prompts/ 2>/dev/null || echo "uncommitted")"
-(cd "$WORKTREE" && zip -r "$PROMPTS_ZIP" prompts/shared/ "prompts/$PATH_NAME/" \
-  -x '*.DS_Store' >/dev/null 2>&1) || true
+python3 -c "
+import zipfile, os, sys
+src = sys.argv[1]; paths = sys.argv[2:]; out = paths.pop(0)
+with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zf:
+    for p in paths:
+        full = os.path.join(src, p)
+        if not os.path.exists(full): continue
+        for root, dirs, files in os.walk(full):
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            for f in files:
+                if f == '.DS_Store': continue
+                fp = os.path.join(root, f)
+                zf.write(fp, os.path.relpath(fp, src))
+" "$WORKTREE" "$PROMPTS_ZIP" "prompts/shared" "prompts/$PATH_NAME" 2>/dev/null || true
 echo "Snapshotted → prompts.zip"
 
 # ---------------------------------------------------------------------------
@@ -166,6 +188,7 @@ fi
 INPUT_TOKENS=0
 OUTPUT_TOKENS=0
 TIME_SECONDS=0
+RETRIES=0
 
 if [[ -f "$RESULT_DIR/generation-meta.json" ]]; then
   INPUT_TOKENS=$(node --input-type=module <<JS
@@ -186,7 +209,13 @@ const d = JSON.parse(readFileSync("$RESULT_DIR/generation-meta.json","utf-8"));
 process.stdout.write(String(d.timeSeconds ?? 0));
 JS
 )
-  echo "Token usage: input=${INPUT_TOKENS}  output=${OUTPUT_TOKENS}  time=${TIME_SECONDS}s"
+  RETRIES=$(node --input-type=module <<JS
+import { readFileSync } from "node:fs";
+const d = JSON.parse(readFileSync("$RESULT_DIR/generation-meta.json","utf-8"));
+process.stdout.write(String(d.retries ?? 0));
+JS
+)
+  echo "Token usage: input=${INPUT_TOKENS}  output=${OUTPUT_TOKENS}  time=${TIME_SECONDS}s  retries=${RETRIES}"
 fi
 
 # ---------------------------------------------------------------------------
@@ -217,6 +246,7 @@ cat > "$RESULT_DIR/benchmark.json" <<JSONEOF
   "inputTokens": $INPUT_TOKENS,
   "outputTokens": $OUTPUT_TOKENS,
   "timeSeconds": $TIME_SECONDS,
+  "retries": $RETRIES,
   "testSuites": {
     "unit": { "total": $UNIT_TOTAL, "passed": $UNIT_PASSED, "failed": $UNIT_FAILED }
   },
