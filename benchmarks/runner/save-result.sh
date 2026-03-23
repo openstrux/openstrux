@@ -87,6 +87,7 @@ echo "Found ${FILE_COUNT} generated file(s)"
 # ---------------------------------------------------------------------------
 
 OUTPUT_REF="$UC_ROOT/output/$PATH_NAME"
+rm -rf "$OUTPUT_REF"
 mkdir -p "$OUTPUT_REF"
 
 for f in "${GENERATED_FILES[@]}"; do
@@ -257,5 +258,39 @@ cat > "$RESULT_DIR/benchmark.json" <<JSONEOF
 JSONEOF
 
 echo "Wrote benchmark.json"
+
+# ---------------------------------------------------------------------------
+# Bundle evidence — everything except benchmark.json and generation-meta.json
+# ---------------------------------------------------------------------------
+
+KEEP=('benchmark.json' 'generation-meta.json' 'evidence.zip')
+EVIDENCE_ZIP="$RESULT_DIR/evidence.zip"
+
+python3 - "$RESULT_DIR" "$EVIDENCE_ZIP" "${KEEP[@]}" <<'PYEOF'
+import zipfile, os, sys
+result_dir, out_path, *keep = sys.argv[1:]
+keep_set = set(keep)
+with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+    for name in sorted(os.listdir(result_dir)):
+        if name in keep_set:
+            continue
+        fp = os.path.join(result_dir, name)
+        if os.path.isfile(fp):
+            zf.write(fp, name)
+PYEOF
+
+# Remove individual files now bundled into evidence.zip
+python3 - "$RESULT_DIR" "$EVIDENCE_ZIP" "${KEEP[@]}" <<'PYEOF'
+import zipfile, os, sys
+result_dir, evidence, *keep = sys.argv[1:]
+keep_set = set(keep)
+with zipfile.ZipFile(evidence, 'r') as zf:
+    for name in zf.namelist():
+        fp = os.path.join(result_dir, name)
+        if os.path.isfile(fp) and name not in keep_set:
+            os.remove(fp)
+PYEOF
+
+echo "Bundled evidence → evidence.zip"
 echo ""
 echo "=== Result saved to $RESULT_DIR ==="

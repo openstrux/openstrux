@@ -15,6 +15,7 @@
     "zod": "^3.23.0"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
     "tiktoken": "^1.0.22"
   }
 }
