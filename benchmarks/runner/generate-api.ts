@@ -255,12 +255,20 @@ function runTests(attempt: number): TestRunResult {
     return { total: 0, passed: 0, failed: 0, failures: [] };
   }
 
+  // Vitest JSON reporter uses "assertionResults" and "name" (not Jest's "testResults"/"testFilePath")
   const data = JSON.parse(readFileSync(testJsonPath, "utf-8")) as {
     numTotalTests?: number;
     numPassedTests?: number;
     numFailedTests?: number;
     testResults?: Array<{
+      name?: string;
       testFilePath?: string;
+      assertionResults?: Array<{
+        title?: string;
+        ancestorTitles?: string[];
+        status?: string;
+        failureMessages?: string[];
+      }>;
       testResults?: Array<{
         title?: string;
         ancestorTitles?: string[];
@@ -273,8 +281,10 @@ function runTests(attempt: number): TestRunResult {
   const failures: TestFailure[] = [];
 
   for (const suite of data.testResults ?? []) {
-    const shortPath = (suite.testFilePath ?? "").replace(worktree + "/", "");
-    for (const test of suite.testResults ?? []) {
+    const rawPath = suite.name ?? suite.testFilePath ?? "";
+    const shortPath = rawPath.replace(worktree + "/", "");
+    const tests = suite.assertionResults ?? suite.testResults ?? [];
+    for (const test of tests) {
       if (test.status === "failed") {
         const ancestors = test.ancestorTitles?.join(" > ") ?? "";
         const testName  = ancestors ? `${ancestors} > ${test.title ?? ""}` : (test.title ?? "");
