@@ -1,12 +1,12 @@
 #!/usr/bin/env node --experimental-strip-types
 /**
- * generate-agent.ts — Benchmark generation via Claude Agent SDK.
+ * generate-agent.ts — Benchmark generation via agentic loop.
  *
- * Runs an agentic session in the worktree: the agent reads stubs and tests,
- * implements the backend, runs unit tests, and iterates until all pass.
- *
- * Replaces generate-api.ts — same CLI interface, same generation-meta.json output
- * so save-result.sh works unchanged.
+ * Supports two providers:
+ *   - anthropic (default for claude-* models): uses @anthropic-ai/claude-agent-sdk.
+ *     The agent reads stubs and tests, implements the backend, runs unit tests, iterates.
+ *   - openai (any OpenAI-compatible API, e.g. z.ai GLM-5): custom tool-calling loop
+ *     exposing bash, read_file, write_file, and list_files to the model.
  *
  * Usage:
  *   node --experimental-strip-types generate-agent.ts \
@@ -14,14 +14,25 @@
  *     --model <model-id> \
  *     --worktree <abs-path> \
  *     --result-dir <abs-path> \
+ *     [--provider <anthropic|openai>]   # auto-detected from model name if omitted
+ *     [--base-url <url>]                # default: https://api.z.ai/api/paas/v4 for openai
  *     [--max-turns <n>]
  *
- * Requires: ANTHROPIC_API_KEY, Node >= 24, @anthropic-ai/claude-agent-sdk
+ * Env vars:
+ *   ANTHROPIC_API_KEY  — required for provider=anthropic
+ *   ZAI_API_KEY        — required for provider=openai (fallback: OPENAI_API_KEY)
  */
 
-import { writeFileSync, mkdirSync, existsSync, appendFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+  appendFileSync,
+  readdirSync,
+} from "node:fs";
+import { join, resolve, dirname } from "node:path";
+import { execSync } from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // CLI args
@@ -33,21 +44,38 @@ function arg(flag: string): string | undefined {
 }
 
 const pathArg   = arg("--path") as "direct" | "openstrux" | undefined;
-const modelArg  = arg("--model")     ?? "claude-sonnet-4-6";
+const modelArg  = arg("--model")      ?? "claude-sonnet-4-6";
 const worktree  = resolve(arg("--worktree") ?? process.cwd());
 const resultDir = arg("--result-dir") ? resolve(arg("--result-dir")!) : undefined;
-const maxTurns  = parseInt(arg("--max-turns") ?? "120", 10);  // safety log only — exit is driven by result message
-const maxWallMs = 20 * 60 * 1000;  // 20-minute hard wall-clock limit
+const maxTurns  = parseInt(arg("--max-turns") ?? "80", 10);
+const maxWallMs = 25 * 60 * 1000;
+
+const providerArg = arg("--provider") as "anthropic" | "openai" | undefined;
+const baseUrlArg  = arg("--base-url");
+
+const provider: "anthropic" | "openai" = providerArg
+  ?? (modelArg.startsWith("claude-") ? "anthropic" : "openai");
+
+const DEFAULT_BASE_URLS: Record<string, string> = {
+  anthropic: "https://api.anthropic.com",
+  openai:    "https://api.z.ai/api/paas/v4",
+};
+const baseUrl = baseUrlArg ?? DEFAULT_BASE_URLS[provider];
 
 if (!pathArg || !["direct", "openstrux"].includes(pathArg)) {
   console.error(
-    "Usage: generate-agent.ts --path <direct|openstrux> [--model <id>] [--worktree <dir>] [--result-dir <dir>] [--max-turns <n>]",
+    "Usage: generate-agent.ts --path <direct|openstrux> --model <id> --worktree <dir> --result-dir <dir> [--provider <anthropic|openai>] [--base-url <url>] [--max-turns <n>]",
   );
   process.exit(1);
 }
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error("Error: ANTHROPIC_API_KEY is not set");
+const apiKey = provider === "anthropic"
+  ? process.env.ANTHROPIC_API_KEY
+  : (process.env.ZAI_API_KEY ?? process.env.OPENAI_API_KEY);
+
+if (!apiKey) {
+  const keyName = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "ZAI_API_KEY or OPENAI_API_KEY";
+  console.error(`Error: ${keyName} is not set`);
   process.exit(1);
 }
 
@@ -65,7 +93,7 @@ function log(msg: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Task prompt
+// Task prompts
 // ---------------------------------------------------------------------------
 
 const DIRECT_PROMPT = `\
@@ -145,7 +173,6 @@ The contract stubs define the exact API surfaces — field names must be preserv
    - ../openstrux-spec/specs/core/syntax-reference.md
 
 5. **Write .strux source files** under pipelines/ and specs/ as appropriate.
-   Update strux.config.yaml if needed.
 
 6. **Run strux build**: \`npx strux build --explain\`
 
@@ -169,25 +196,35 @@ const taskPrompt = pathArg === "openstrux" ? OPENSTRUX_PROMPT : DIRECT_PROMPT;
 // ---------------------------------------------------------------------------
 
 async function run(): Promise<void> {
-  const startMs = Date.now();
-
-  log(`[generate-agent] path=${pathArg} model=${modelArg} maxTurns=${maxTurns}`);
+  log(`[generate-agent] provider=${provider} model=${modelArg} path=${pathArg} maxTurns=${maxTurns}`);
   log(`[generate-agent] worktree=${worktree}`);
+  log(`[generate-agent] base-url=${baseUrl}`);
   log("");
 
-  // Token accumulators (per-turn fallback — overridden by result message totals)
-  // input_tokens from per-turn usage is just NEW tokens; add cache buckets for real cost.
+  if (provider === "anthropic") {
+    await runAnthropicAgent();
+  } else {
+    await runOpenAIAgent();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Anthropic path — Claude Agent SDK
+// ---------------------------------------------------------------------------
+
+async function runAnthropicAgent(): Promise<void> {
+  const { query } = await import("@anthropic-ai/claude-agent-sdk");
+
+  const startMs = Date.now();
   let inputTokens  = 0;
   let outputTokens = 0;
   let turns        = 0;
   let exitSubtype  = "unknown";
 
-  // Deduplicate: parallel tool-use calls share the same message id
   const seenMessageIds = new Set<string>();
-
   const abortController = new AbortController();
   const wallTimeout = setTimeout(() => {
-    log(`[generate-agent] Wall-clock limit (${maxWallMs / 60000}min) reached — aborting.`);
+    log(`[generate-agent] Wall-clock limit reached — aborting.`);
     abortController.abort();
   }, maxWallMs);
 
@@ -211,7 +248,13 @@ async function run(): Promise<void> {
           cache_read_input_tokens?: number;
           cache_creation_input_tokens?: number;
         };
-        type AssistantMsg = { message: { id: string; usage: Usage; content: Array<{ type: string; name?: string; input?: unknown }> } };
+        type AssistantMsg = {
+          message: {
+            id: string;
+            usage: Usage;
+            content: Array<{ type: string; name?: string; input?: unknown }>;
+          };
+        };
         const msg = message as AssistantMsg;
 
         if (!seenMessageIds.has(msg.message.id)) {
@@ -223,10 +266,9 @@ async function run(): Promise<void> {
           const outThisTurn = u.output_tokens ?? 0;
           inputTokens  += inThisTurn;
           outputTokens += outThisTurn;
-          log(`[turn ${turns}] tokens — in: ${inThisTurn} (new:${u.input_tokens ?? 0} cc:${u.cache_creation_input_tokens ?? 0} cr:${u.cache_read_input_tokens ?? 0})  out: ${outThisTurn}`);
+          log(`[turn ${turns}] tokens — in: ${inThisTurn}  out: ${outThisTurn}`);
         }
 
-        // Log tool calls
         for (const block of msg.message.content ?? []) {
           if (block.type === "tool_use") {
             const input = block.input as Record<string, unknown> | undefined;
@@ -234,43 +276,34 @@ async function run(): Promise<void> {
             log(`  → ${block.name}(${preview})`);
           }
         }
-
-        if (turns === maxTurns) log(`[generate-agent] Warning: ${maxTurns} turns reached — agent still running.`);
       }
 
       if (message.type === "result") {
-        type ResultUsage = {
-          input_tokens?: number;
-          output_tokens?: number;
-          cache_creation_input_tokens?: number;
-          cache_read_input_tokens?: number;
-        };
         type ResultMsg = {
           subtype: string;
-          usage?: ResultUsage;
+          usage?: {
+            input_tokens?: number;
+            output_tokens?: number;
+            cache_creation_input_tokens?: number;
+            cache_read_input_tokens?: number;
+          };
           num_turns: number;
           result: string;
         };
         const result = message as ResultMsg;
-
         exitSubtype = result.subtype;
         turns       = result.num_turns;
 
-        // Authoritative totals from result message.
-        // input_tokens alone is just new tokens in the final turn — add cache buckets
-        // to get the full input cost across the session.
         if (result.usage) {
           const u = result.usage;
           inputTokens  = (u.input_tokens ?? 0)
                        + (u.cache_creation_input_tokens ?? 0)
                        + (u.cache_read_input_tokens ?? 0);
-          outputTokens = u.output_tokens ?? outputTokens;
+          outputTokens = u.output_tokens ?? inputTokens;
         }
 
-        log("");
         log(`[generate-agent] Done — subtype=${exitSubtype}  turns=${turns}`);
         log(`[generate-agent] tokens — input: ${inputTokens}  output: ${outputTokens}`);
-        log(`[generate-agent] result usage (raw): ${JSON.stringify(result.usage)}`);
         if (result.result) log(`[generate-agent] summary: ${result.result.slice(0, 300)}`);
         break;
       }
@@ -279,28 +312,236 @@ async function run(): Promise<void> {
     clearTimeout(wallTimeout);
   }
 
-  const timeSeconds = (Date.now() - startMs) / 1000;
+  writeMeta({ inputTokens, outputTokens, turns, exitSubtype,
+    timeSeconds: (Date.now() - startMs) / 1000 });
+}
 
-  log(`[generate-agent] Wall time: ${timeSeconds.toFixed(1)}s`);
+// ---------------------------------------------------------------------------
+// OpenAI-compatible path — tool-calling agent loop
+// ---------------------------------------------------------------------------
 
-  // ---------------------------------------------------------------------------
-  // Write generation-meta.json (read by save-result.sh)
-  // ---------------------------------------------------------------------------
+type OAIMessage =
+  | { role: "system" | "user" | "assistant"; content: string }
+  | { role: "assistant"; content: string | null; tool_calls: OAIToolCall[] }
+  | { role: "tool"; tool_call_id: string; content: string };
+
+interface OAIToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+const OAI_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "read_file",
+      description: "Read a file from the project worktree. Returns file contents as text.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Path relative to the project root" },
+        },
+        required: ["path"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "write_file",
+      description: "Write (create or overwrite) a file in the project worktree.",
+      parameters: {
+        type: "object",
+        properties: {
+          path:    { type: "string", description: "Path relative to the project root" },
+          content: { type: "string", description: "Full file content to write" },
+        },
+        required: ["path", "content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_files",
+      description: "List files in a directory of the project worktree.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Directory path relative to the project root (default: .)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "bash",
+      description: "Run a shell command in the project worktree. Use for running tests (pnpm test:unit), checking TypeScript errors (pnpm type-check), or exploring the file tree.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "Shell command to execute" },
+        },
+        required: ["command"],
+      },
+    },
+  },
+];
+
+function execTool(name: string, args: Record<string, string>): string {
+  try {
+    switch (name) {
+      case "read_file": {
+        const abs = join(worktree, args.path);
+        if (!existsSync(abs)) return `Error: file not found: ${args.path}`;
+        return readFileSync(abs, "utf-8");
+      }
+      case "write_file": {
+        const abs = join(worktree, args.path);
+        mkdirSync(dirname(abs), { recursive: true });
+        writeFileSync(abs, args.content, "utf-8");
+        return `Written: ${args.path}`;
+      }
+      case "list_files": {
+        const abs = join(worktree, args.path ?? ".");
+        if (!existsSync(abs)) return `Error: directory not found: ${args.path ?? "."}`;
+        return readdirSync(abs).join("\n");
+      }
+      case "bash": {
+        const out = execSync(args.command, {
+          cwd:      worktree,
+          timeout:  120_000,
+          encoding: "utf-8",
+        });
+        return (out || "(no output)").slice(0, 8000);
+      }
+      default:
+        return `Error: unknown tool: ${name}`;
+    }
+  } catch (e: unknown) {
+    const err = e as { stdout?: string; stderr?: string; message?: string };
+    const output = (err.stdout ?? "") + (err.stderr ?? "");
+    return `Error:\n${output || (err.message ?? String(e))}`.slice(0, 4000);
+  }
+}
+
+async function runOpenAIAgent(): Promise<void> {
+  const chatUrl = baseUrl.replace(/\/$/, "") + "/chat/completions";
+  const startMs = Date.now();
+  let inputTokens  = 0;
+  let outputTokens = 0;
+  let turns        = 0;
+
+  const messages: OAIMessage[] = [
+    { role: "user", content: taskPrompt },
+  ];
+
+  const wallDeadline = Date.now() + maxWallMs;
+
+  while (turns < maxTurns && Date.now() < wallDeadline) {
+    turns++;
+    log(`\n[turn ${turns}] calling ${modelArg} ...`);
+
+    const res = await fetch(chatUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model:        modelArg,
+        messages,
+        tools:        OAI_TOOLS,
+        tool_choice:  "auto",
+        max_tokens:   8192,
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      log(`[generate-agent] API error ${res.status}: ${text}`);
+      break;
+    }
+
+    const data = await res.json() as {
+      choices: Array<{
+        message: {
+          role: "assistant";
+          content: string | null;
+          tool_calls?: OAIToolCall[];
+        };
+        finish_reason: string;
+      }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+
+    if (data.usage) {
+      inputTokens  += data.usage.prompt_tokens    ?? 0;
+      outputTokens += data.usage.completion_tokens ?? 0;
+    }
+
+    const choice  = data.choices[0];
+    const message = choice.message;
+    messages.push(message as OAIMessage);
+
+    const toolCalls = message.tool_calls ?? [];
+
+    if (toolCalls.length === 0) {
+      // No tool calls — agent is done
+      log(`[generate-agent] Agent finished (finish_reason=${choice.finish_reason})`);
+      if (message.content) log(`[generate-agent] Summary: ${message.content.slice(0, 400)}`);
+      break;
+    }
+
+    // Execute each tool call and append results
+    for (const tc of toolCalls) {
+      let toolArgs: Record<string, string> = {};
+      try { toolArgs = JSON.parse(tc.function.arguments) as Record<string, string>; } catch { /* ignore */ }
+      const preview = toolArgs.command ?? toolArgs.path ?? tc.function.name;
+      log(`  → ${tc.function.name}(${preview})`);
+
+      const result = execTool(tc.function.name, toolArgs);
+      messages.push({ role: "tool", tool_call_id: tc.id, content: result });
+    }
+  }
+
+  if (turns >= maxTurns) log(`[generate-agent] Warning: maxTurns (${maxTurns}) reached.`);
+  if (Date.now() >= wallDeadline) log(`[generate-agent] Warning: wall-clock limit reached.`);
+
+  log(`[generate-agent] Done — turns=${turns}  input=${inputTokens}  output=${outputTokens}`);
+  writeMeta({ inputTokens, outputTokens, turns, exitSubtype: "success",
+    timeSeconds: (Date.now() - startMs) / 1000 });
+}
+
+// ---------------------------------------------------------------------------
+// Shared metadata writer
+// ---------------------------------------------------------------------------
+
+function writeMeta(meta: {
+  inputTokens: number;
+  outputTokens: number;
+  turns: number;
+  exitSubtype: string;
+  timeSeconds: number;
+}): void {
+  log(`[generate-agent] Wall time: ${meta.timeSeconds.toFixed(1)}s`);
 
   if (resultDir) {
-    const meta = {
-      model:        modelArg,
-      inputTokens,
-      outputTokens,
-      timeSeconds,
-      turns,
-      retries:      turns,  // "retries" field expected by save-result.sh — use turns
-      exitSubtype,
-    };
-    writeFileSync(join(resultDir, "generation-meta.json"), JSON.stringify(meta, null, 2), "utf-8");
+    writeFileSync(
+      join(resultDir, "generation-meta.json"),
+      JSON.stringify({ model: modelArg, provider, ...meta, retries: meta.turns }, null, 2),
+      "utf-8",
+    );
     log(`[generate-agent] Wrote generation-meta.json`);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Entry
+// ---------------------------------------------------------------------------
 
 run().catch((err: unknown) => {
   console.error("[generate-agent] Fatal:", err instanceof Error ? err.message : err);

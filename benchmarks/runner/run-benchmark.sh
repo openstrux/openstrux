@@ -30,28 +30,37 @@ OPENSTRUX_ROOT="$(cd "$RUNNER_DIR/../.." && pwd)"
 UC_ROOT=""
 PATH_NAME=""
 MODEL="claude-sonnet-4-6"
+PROVIDER=""      # auto-detected from model name if omitted
+BASE_URL=""      # provider-specific default if omitted
 WITH_DB=true    # integration tests are on by default; pass --no-db to skip
 NOTE=""
-MAX_RETRIES=""   # empty = let generate-api read from benchmark.config.json
-AGENT=true
-MAX_TURNS="40"
+MAX_TURNS="80"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --uc)          UC_ROOT="$2";     shift 2 ;;
-    --path)        PATH_NAME="$2";   shift 2 ;;
-    --model)       MODEL="$2";       shift 2 ;;
-    --no-db)       WITH_DB=false;    shift ;;
-    --note)        NOTE="$2";        shift 2 ;;
-    --max-retries) MAX_RETRIES="$2"; shift 2 ;;
-    --no-agent)    AGENT=false;      shift ;;
+    --uc)          UC_ROOT="$2";    shift 2 ;;
+    --path)        PATH_NAME="$2";  shift 2 ;;
+    --model)       MODEL="$2";      shift 2 ;;
+    --provider)    PROVIDER="$2";   shift 2 ;;
+    --base-url)    BASE_URL="$2";   shift 2 ;;
+    --no-db)       WITH_DB=false;   shift ;;
+    --note)        NOTE="$2";       shift 2 ;;
     --max-turns)   MAX_TURNS="$2";  shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
 
+# Auto-detect provider from model name
+if [[ -z "$PROVIDER" ]]; then
+  if [[ "$MODEL" == claude-* ]]; then
+    PROVIDER="anthropic"
+  else
+    PROVIDER="openai"
+  fi
+fi
+
 if [[ -z "$UC_ROOT" || -z "$PATH_NAME" ]]; then
-  echo "Usage: run-benchmark.sh --uc <uc-repo> --path <direct|openstrux> [--model <id>] [--no-db] [--note <string>] [--max-turns <n>] [--no-agent] [--max-retries <n>]"
+  echo "Usage: run-benchmark.sh --uc <uc-repo> --path <direct|openstrux> [--model <id>] [--provider <anthropic|openai>] [--base-url <url>] [--no-db] [--note <string>] [--max-turns <n>]"
   exit 1
 fi
 
@@ -60,9 +69,17 @@ case "$PATH_NAME" in
   *) echo "Error: --path must be 'direct' or 'openstrux'"; exit 1 ;;
 esac
 
-if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-  echo "Error: ANTHROPIC_API_KEY is not set"
-  exit 1
+if [[ "$PROVIDER" == "anthropic" ]]; then
+  # Accept ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN (used by z.ai)
+  if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${ANTHROPIC_AUTH_TOKEN:-}" ]]; then
+    echo "Error: ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN for z.ai) is not set"
+    exit 1
+  fi
+else
+  if [[ -z "${ZAI_API_KEY:-}" && -z "${OPENAI_API_KEY:-}" ]]; then
+    echo "Error: ZAI_API_KEY (or OPENAI_API_KEY) is not set"
+    exit 1
+  fi
 fi
 
 UC_ROOT="$(cd "$UC_ROOT" && pwd)"
@@ -92,9 +109,9 @@ echo " Benchmark run : $RUN_SLUG"
 echo " use-case repo : $UC_ROOT"
 echo " path          : $PATH_NAME"
 echo " model         : $MODEL"
+echo " provider      : $PROVIDER"
 echo " integration db: $WITH_DB"
-echo " agent mode    : $AGENT"
-echo " max-retries   : ${MAX_RETRIES:-from config}"
+echo " max-turns     : $MAX_TURNS"
 echo " worktree      : $WORKTREE_DIR"
 echo " results       : $RESULT_DIR"
 echo "============================================================"
@@ -140,36 +157,30 @@ echo ""
 # Step 3: Generate
 # ---------------------------------------------------------------------------
 
-echo "=== Step 3: Generate (${PATH_NAME}) ==="
+echo "=== Step 3: Generate (${PATH_NAME}, provider=${PROVIDER}) ==="
 
-if [[ "$AGENT" == "true" ]]; then
-  # Agent mode: Claude Code SDK — agent reads stubs and tests, writes code, runs tests itself
-  node --experimental-strip-types "$RUNNER_DIR/generate-agent.ts" \
-    --path       "$PATH_NAME" \
-    --model      "$MODEL" \
-    --worktree   "$WORKTREE_DIR" \
-    --result-dir "$RESULT_DIR" \
-    --max-turns  "$MAX_TURNS"
-else
-  # API mode: static prompt + fenced-block parsing + retry loop
-  RETRIES_ARG=()
-  [[ -n "$MAX_RETRIES" ]] && RETRIES_ARG=(--max-retries "$MAX_RETRIES")
-
-  node --experimental-strip-types "$RUNNER_DIR/generate-api.ts" \
-    --path       "$PATH_NAME" \
-    --model      "$MODEL" \
-    --worktree   "$WORKTREE_DIR" \
-    --result-dir "$RESULT_DIR" \
-    "${RETRIES_ARG[@]}"
-
-  # For the openstrux path in API mode: run strux build after generation
-  if [[ "$PATH_NAME" == "openstrux" ]]; then
-    echo "=== Step 3b: strux build ==="
-    (cd "$WORKTREE_DIR" && npx strux build --explain 2>&1 | tee "$RESULT_DIR/strux-build.log") \
-      || echo "Warning: strux build non-zero — see strux-build.log"
-    echo ""
-  fi
+# For the Anthropic provider path, --base-url overrides ANTHROPIC_BASE_URL so the
+# Claude Agent SDK routes through the alternative endpoint (e.g. z.ai).
+# For the OpenAI provider path, --base-url is passed directly to generate-agent.ts.
+if [[ "$PROVIDER" == "anthropic" && -n "$BASE_URL" ]]; then
+  export ANTHROPIC_BASE_URL="$BASE_URL"
+  echo "[runner] ANTHROPIC_BASE_URL=$ANTHROPIC_BASE_URL"
 fi
+
+# Build optional base-url arg (OpenAI path only — Anthropic reads it from env)
+BASE_URL_ARG=()
+[[ "$PROVIDER" == "openai" && -n "$BASE_URL" ]] && BASE_URL_ARG=(--base-url "$BASE_URL")
+
+# Agent mode: agentic loop (Claude Agent SDK for anthropic; tool-calling for openai)
+node --experimental-strip-types "$RUNNER_DIR/generate-agent.ts" \
+  --path       "$PATH_NAME" \
+  --model      "$MODEL" \
+  --provider   "$PROVIDER" \
+  --worktree   "$WORKTREE_DIR" \
+  --result-dir "$RESULT_DIR" \
+  --max-turns  "$MAX_TURNS" \
+  "${BASE_URL_ARG[@]}"
+
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -199,8 +210,15 @@ echo ""
 # ---------------------------------------------------------------------------
 
 if [[ "$WITH_DB" == "true" ]]; then
-  echo "=== Step 5: Integration tests (--with-db) ==="
+  echo "=== Step 5: Integration tests ==="
 
+  if ! command -v docker &>/dev/null; then
+    echo "Warning: docker not found — skipping integration tests (re-run without --no-db on a machine with Docker)"
+    WITH_DB=false
+  fi
+fi
+
+if [[ "$WITH_DB" == "true" ]]; then
   DB_PORT=5433
   DB_CONTAINER="grant-bench-pg-${DATE_SLUG}"
   DB_URL="postgresql://postgres:bench@localhost:${DB_PORT}/grant_workflow"
