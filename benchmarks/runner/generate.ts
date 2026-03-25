@@ -36,6 +36,51 @@
  *   ANTHROPIC_API_KEY  — provider=anthropic
  *   ZAI_API_KEY        — provider=openai (fallback: OPENAI_API_KEY)
  *   GOOGLE_API_KEY     — provider=google-gemini
+ *
+ * ---------------------------------------------------------------------------
+ * Common workflows
+ * ---------------------------------------------------------------------------
+ *
+ * ## A. Direct path — prompt mode → Claude Code (manual apply, keep env)
+ *
+ *   Step 1 — Generate prompt and record worktree:
+ *     node --experimental-strip-types generate.ts \
+ *       --path direct \
+ *       --mode prompt \
+ *       --worktree <abs-path-to-worktree> \
+ *       --result-dir benchmarks/results/$(date +%Y%m%d-%H%M%S)-direct
+ *
+ *   Step 2 — Paste prompt-direct.txt into a Claude Code (or claude.ai) session.
+ *            Save the full response to benchmarks/results/<run>/response.txt.
+ *
+ *   Step 3 — Apply response (keep worktree intact for manual inspection):
+ *     node --experimental-strip-types generate.ts \
+ *       --path direct \
+ *       --mode apply \
+ *       --result-dir benchmarks/results/<run> \
+ *       --response benchmarks/results/<run>/response.txt
+ *
+ *   NOTE: on test failure the worktree is left untouched — inspect freely.
+ *         On success, save-result.sh runs automatically and may remove the
+ *         worktree. To prevent that, interrupt (Ctrl-C) after "All tests
+ *         passed!" and before save-result.sh exits, or examine the worktree
+ *         immediately after the apply step while the process is still running.
+ *
+ * ## B. Direct path — fully automated agent mode (Claude Sonnet, no human paste)
+ *
+ *   node --experimental-strip-types generate.ts \
+ *     --path direct \
+ *     --mode agent \
+ *     --worktree <abs-path-to-worktree> \
+ *     --result-dir benchmarks/results/$(date +%Y%m%d-%H%M%S)-direct-agent
+ *
+ * ## C. Openstrux path — automated agent mode
+ *
+ *   node --experimental-strip-types generate.ts \
+ *     --path openstrux \
+ *     --mode agent \
+ *     --worktree <abs-path-to-worktree> \
+ *     --result-dir benchmarks/results/$(date +%Y%m%d-%H%M%S)-openstrux-agent
  */
 
 import {
@@ -58,14 +103,19 @@ function arg(flag: string): string | undefined {
   return i !== -1 ? process.argv[i + 1] : undefined;
 }
 
-const pathArg      = arg("--path") as "direct" | "openstrux" | undefined;
-const modeArg      = arg("--mode") ?? "agent";
-const responseFile = arg("--response");
-const worktreeArg  = arg("--worktree");
-const resultDirArg = arg("--result-dir");
-const branchArg    = arg("--branch");
-const maxTurns     = parseInt(arg("--max-turns") ?? "80", 10);
-const maxWallMs    = 25 * 60 * 1000;
+const pathArg        = arg("--path") as "direct" | "openstrux" | undefined;
+const modeArg        = arg("--mode") ?? "agent";
+const responseFile   = arg("--response");
+const worktreeArg    = arg("--worktree");
+const resultDirArg   = arg("--result-dir");
+const branchArg      = arg("--branch");
+const maxTurns       = parseInt(arg("--max-turns") ?? "80", 10);
+const maxWallMs      = 25 * 60 * 1000;
+// Optional explicit token/time overrides for apply mode (web-session runs)
+const inputTokensArg  = arg("--input-tokens");
+const outputTokensArg = arg("--output-tokens");
+const timeSecondsArg  = arg("--time-seconds");
+const retriesArg      = arg("--retries");
 
 // Validate mode
 if (!["agent", "prompt", "apply"].includes(modeArg)) {
@@ -195,10 +245,10 @@ is to replace the \`throw new Error("Not implemented")\` bodies with real code.
    - tests/fixtures/ (JSON fixture files)
 
 3. **Read the domain specs** for business logic:
-   - specs/domain-model.md
-   - specs/workflow-states.md
-   - specs/access-policies.md
-   - specs/mvp-profile.md
+   - openspec/specs/domain-model.md
+   - openspec/specs/workflow-states.md
+   - openspec/specs/access-policies.md
+   - openspec/specs/mvp-profile.md
 
 4. **Implement** all stubs. Also implement prisma/schema.prisma.
 
@@ -240,13 +290,13 @@ The contract stubs define the exact API surfaces — field names must be preserv
    - tests/fixtures/ (JSON fixtures)
 
 3. **Read the domain specs** for business logic:
-   - specs/domain-model.md, specs/workflow-states.md
-   - specs/access-policies.md, specs/mvp-profile.md
+   - openspec/specs/domain-model.md, openspec/specs/workflow-states.md
+   - openspec/specs/access-policies.md, openspec/specs/mvp-profile.md
 
 4. **Read the Openstrux language reference** if present:
    - ../openstrux-spec/specs/core/syntax-reference.md
 
-5. **Write .strux source files** under pipelines/ and specs/ as appropriate.
+5. **Write .strux source files** under pipelines/ as appropriate.
 
 6. **Run strux build**: \`npx strux build --explain\`
 
@@ -296,16 +346,22 @@ function loadConfig(wt: string): BenchmarkConfig {
   return JSON.parse(readFileSync(configPath, "utf-8")) as BenchmarkConfig;
 }
 
-function assemblePrompt(wt: string, config: BenchmarkConfig): string {
+function assemblePrompt(
+  wt: string,
+  config: BenchmarkConfig,
+  opts: { skipOutputFormat?: boolean } = {},
+): string {
   const parts: string[] = [
-    section("System",                  readFromWorktree(wt, "prompts/shared/system.md")),
-    section("Constraints",             readFromWorktree(wt, "prompts/shared/constraints.md")),
+    section("System",                  readFromWorktree(wt, "benchmarks/prompts/shared/system.md")),
+    section("Constraints",             readFromWorktree(wt, "benchmarks/prompts/shared/constraints.md")),
     ...config.specs.map((p) =>         section(basename(p).replace(/\.md$/, ""), readFromWorktree(wt, p))),
     section("Tasks",                   readFromWorktree(wt, config.tasks)),
-    section("Generation Instructions", readFromWorktree(wt, "prompts/shared/generate.md")),
-    section("Path Instructions",       readFromWorktree(wt, `prompts/${pathArg}/generate.md`)),
-    section("Output Format",           readFromWorktree(wt, "prompts/shared/task-format.md")),
+    section("Generation Instructions", readFromWorktree(wt, "benchmarks/prompts/shared/generate.md")),
+    section("Path Instructions",       readFromWorktree(wt, `benchmarks/prompts/${pathArg}/generate.md`)),
   ];
+  if (!opts.skipOutputFormat) {
+    parts.push(section("Output Format", readFromWorktree(wt, "benchmarks/prompts/shared/task-format.md")));
+  }
 
   if (pathArg === "openstrux") {
     const syntaxRef = join(wt, "../openstrux-spec/specs/core/syntax-reference.md");
@@ -459,6 +515,39 @@ function parseFencedBlocks(text: string): Array<{ path: string; content: string 
     files.push({ path: filePath, content });
   }
 
+  // Fallback: parse unfenced sections where each file starts with a `// path/to/file.ext` header line.
+  // Used when the LLM outputs code without fenced blocks (e.g. retry responses from web sessions).
+  if (files.length === 0) {
+    const fileHeaderRe = /^\/\/\s+([\w./-]+\/[\w./-]+\.[a-z]+)\s*$/;
+    const lines = text.split("\n");
+    let currentPath: string | null = null;
+    let currentLines: string[] = [];
+
+    const flush = () => {
+      if (currentPath) {
+        // Trim trailing blank lines
+        while (currentLines.length > 0 && currentLines[currentLines.length - 1].trim() === "") {
+          currentLines.pop();
+        }
+        if (currentLines.length > 0) {
+          files.push({ path: currentPath, content: currentLines.join("\n") + "\n" });
+        }
+      }
+    };
+
+    for (const line of lines) {
+      const hm = fileHeaderRe.exec(line);
+      if (hm) {
+        flush();
+        currentPath = hm[1].trim();
+        currentLines = [];
+      } else if (currentPath !== null) {
+        currentLines.push(line);
+      }
+    }
+    flush();
+  }
+
   return files;
 }
 
@@ -568,7 +657,7 @@ function buildRetryPrompt(wt: string, config: BenchmarkConfig, result: TestRunRe
     failureLines.push("");
   }
 
-  const template = readFromWorktree(wt, "prompts/shared/retry.md");
+  const template = readFromWorktree(wt, "benchmarks/prompts/shared/retry.md");
   return template
     .replace("{{passed}}", String(result.passed))
     .replace("{{total}}", String(result.total))
@@ -827,18 +916,25 @@ async function promptMode(): Promise<void> {
   console.log(`[generate] worktree=${worktree}`);
 
   const config = loadConfig(worktree);
-  let prompt = assemblePrompt(worktree, config);
+  // Branch mode: LLM pushes to git directly — fenced-block output format is not needed.
+  let prompt = assemblePrompt(worktree, config, { skipOutputFormat: !!branchArg });
 
   // If a bench branch is provided, append a delivery section instructing Claude
   // to push directly to that branch instead of pasting code blocks.
   if (branchArg) {
     prompt += `\n\n---\n\n` + section(
       "Delivery",
-      `The worktree for this run is pre-created on branch \`${branchArg}\`.\n\n` +
-      `Push your implementation directly to that branch — do NOT create a new branch:\n\n` +
+      `**You must work inside the pre-created worktree directory** — do NOT work in the repo root.\n\n` +
+      `Worktree path: \`${worktree}\`\n\n` +
+      `That directory is already checked out on branch \`${branchArg}\`. ` +
+      `Verify before touching any file:\n\n` +
       `\`\`\`bash\n` +
-      `git checkout ${branchArg}   # if not already on it\n` +
-      `# implement your changes, then:\n` +
+      `cd "${worktree}"\n` +
+      `git branch --show-current   # must print: ${branchArg}\n` +
+      `\`\`\`\n\n` +
+      `If it does not print \`${branchArg}\`, stop — something is wrong with the setup.\n\n` +
+      `When your implementation is complete:\n\n` +
+      `\`\`\`bash\n` +
       `git add -A\n` +
       `git commit -m "feat(generation): implement backend (${pathArg} path)"\n` +
       `git push origin ${branchArg}\n` +
@@ -848,6 +944,15 @@ async function promptMode(): Promise<void> {
     );
   }
 
+  // Append a token-reporting footer so apply mode can recover output token count
+  // without manual copy-paste.  Claude can reliably self-report output tokens;
+  // input tokens are unknown to the model and must come from --input-tokens flag.
+  prompt +=
+    "\n\n---\n\n" +
+    "After your final code block, output this exact line " +
+    "(replace N with your output token count for this whole response):\n" +
+    "<!-- benchmark-meta: {\"outputTokens\": N} -->";
+
   mkdirSync(resultDir!, { recursive: true });
 
   const promptFile   = join(resultDir!, `prompt-${pathArg}.txt`);
@@ -856,6 +961,31 @@ async function promptMode(): Promise<void> {
   writeFileSync(promptFile,   prompt,   "utf-8");
   writeFileSync(worktreeFile, worktree, "utf-8");
 
+  // Write a Stop hook into the worktree's .claude/settings.json so that when a
+  // Claude Code session runs there, it automatically captures token usage and
+  // wall time into generation-meta.json at session end.  save-result.sh reads
+  // that file; without it all metrics default to zero.
+  const runnerDir  = dirname(new URL(import.meta.url).pathname);
+  const hookScript = join(runnerDir, "cc-stop-hook.py");
+  const clauDir    = join(worktree, ".claude");
+  mkdirSync(clauDir, { recursive: true });
+  const settingsPath = join(clauDir, "settings.json");
+  // Merge with any existing settings rather than overwriting.
+  let existing: Record<string, unknown> = {};
+  if (existsSync(settingsPath)) {
+    try { existing = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch { /* ignore */ }
+  }
+  const hooks = (existing.hooks ?? {}) as Record<string, unknown[]>;
+  hooks["Stop"] = [
+    {
+      matcher: ".*",
+      hooks: [{ type: "command", command: `python3 "${hookScript}" "${resultDir}"` }],
+    },
+  ];
+  existing.hooks = hooks;
+  writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
+  console.log(`[generate] Wrote Stop hook → ${settingsPath}`);
+
   console.log(`[generate] Wrote prompt:        ${promptFile}`);
   console.log(`[generate] Wrote worktree path: ${worktreeFile}`);
   console.log(`[generate] Prompt length: ${prompt.length} chars / ~${Math.round(prompt.length / 4)} tokens`);
@@ -863,14 +993,19 @@ async function promptMode(): Promise<void> {
   console.log("=== Next steps ===");
   console.log(`1. Open ${promptFile}`);
   if (branchArg) {
-    console.log(`2. Paste into a Claude.ai session — Claude should push to branch: ${branchArg}`);
+    console.log(`2. Start a Claude Code session pointed at the WORKTREE (not the repo root):`);
+    console.log(`     claude "${worktree}"`);
+    console.log(`   CC will work in ${worktree} on branch ${branchArg}.`);
+    console.log(`   Paste the prompt; CC should commit and push to that branch.`);
+    console.log(`   Token usage will be captured automatically when the session ends.`);
     console.log(`3. Once Claude has pushed, apply (no response file needed):`);
-    console.log(`   node --experimental-strip-types generate.ts \\`);
-    console.log(`     --mode apply --path ${pathArg} \\`);
-    console.log(`     --result-dir ${resultDir} \\`);
-    console.log(`     --branch ${branchArg}`);
+    console.log(`   run-benchmark.sh --mode apply --path ${pathArg} \\`);
+    console.log(`     --uc <uc-repo> --result-dir ${resultDir}`);
   } else {
-    console.log(`2. Paste its contents into a Claude.ai web session`);
+    console.log(`2. Paste its contents into a Claude Code session pointed at the WORKTREE:`);
+    console.log(`     claude "${worktree}"`);
+    console.log(`   Token usage will be captured automatically when the session ends.`);
+    console.log(`   (If using claude.ai web instead, tokens cannot be captured automatically.)`);
     console.log(`3. Copy the full response and save it to a file, e.g.:`);
     console.log(`   ${resultDir}/response.txt`);
     console.log(`4. Apply the response:`);
@@ -925,9 +1060,23 @@ async function applyMode(): Promise<void> {
     const files = parseFencedBlocks(responseText);
     console.log(`[generate] Extracted ${files.length} file(s) from response`);
     if (files.length === 0) {
-      console.warn("[generate] Warning: no fenced blocks with file paths found — check response format");
+      // No code blocks found — the LLM may have pushed directly to the branch (agent/CC flow).
+      // Fall back to branch mode if a branch is derivable.
+      const fallbackBranch = branchArg ?? (() => {
+        const slug = resultDirArg ? basename(resultDirArg) : "";
+        return slug ? `bench-${slug}` : undefined;
+      })();
+      if (fallbackBranch) {
+        console.log(`[generate] No files extracted — falling back to branch mode: origin/${fallbackBranch}`);
+        execSync(`git fetch origin "${fallbackBranch}"`, { cwd: worktree, stdio: "inherit" });
+        execSync(`git reset --hard "origin/${fallbackBranch}"`, { cwd: worktree, stdio: "inherit" });
+        console.log(`[generate] Worktree updated from origin/${fallbackBranch}`);
+      } else {
+        console.warn("[generate] Warning: no files extracted and no branch available — check response format");
+      }
+    } else {
+      writeFiles(files, worktree);
     }
-    writeFiles(files, worktree);
   } else {
     // Branch mode: pull code from remote branch into worktree
     const branch = branchArg ?? (() => {
@@ -952,6 +1101,61 @@ async function applyMode(): Promise<void> {
   console.log(`\n[generate] Running unit tests...`);
   const testResult = runTests(worktree, config, attempt, resultDir!);
   console.log(`[generate] Tests: ${testResult.passed}/${testResult.total} passed, ${testResult.failed} failed`);
+
+  // ---------------------------------------------------------------------------
+  // Token meta: parse footer from response (Option 1) and/or explicit flags
+  // (Option 2).  Flags take precedence over footer; footer fills what flags
+  // omit.  Written now so save-result.sh finds generation-meta.json on disk.
+  // If neither source is available the CC Stop hook may have already written
+  // the file — leave it untouched in that case.
+  // ---------------------------------------------------------------------------
+  {
+    // Parse <!-- benchmark-meta: {"outputTokens": N} --> from response text
+    let footerOut: number | undefined;
+    if (responseFile) {
+      const responseAbs = resolve(responseFile);
+      if (existsSync(responseAbs)) {
+        const responseText = readFileSync(responseAbs, "utf-8");
+        const m = responseText.match(/<!--\s*benchmark-meta:\s*(\{[^}]*\})\s*-->/);
+        if (m) {
+          try { footerOut = (JSON.parse(m[1]) as { outputTokens?: number }).outputTokens; } catch { /* ignore */ }
+        }
+      }
+    }
+
+    const explicitIn  = inputTokensArg  ? parseInt(inputTokensArg,  10) : undefined;
+    const explicitOut = outputTokensArg ? parseInt(outputTokensArg, 10) : undefined;
+    const explicitT   = timeSecondsArg  ? parseFloat(timeSecondsArg)    : undefined;
+    const explicitR   = retriesArg      ? parseInt(retriesArg,       10) : undefined;
+
+    const hasData = explicitIn !== undefined || explicitOut !== undefined || footerOut !== undefined;
+    if (hasData) {
+      const metaPath = join(resultDir!, "generation-meta.json");
+      // Merge over any existing file (e.g. from CC Stop hook)
+      let base: Record<string, unknown> = {};
+      if (existsSync(metaPath)) {
+        try { base = JSON.parse(readFileSync(metaPath, "utf-8")); } catch { /* ignore */ }
+      }
+      const outTokens = explicitOut ?? footerOut ?? (base.outputTokens as number | undefined) ?? 0;
+      const inTokens  = explicitIn  ?? (base.inputTokens  as number | undefined) ?? 0;
+      const timeSecs  = explicitT   ?? (base.timeSeconds  as number | undefined) ?? 0;
+      const retries   = explicitR   ?? (base.retries      as number | undefined) ?? 0;
+      const meta = {
+        model:       base.model    ?? modelArg,
+        provider:    base.provider ?? provider,
+        inputTokens:  inTokens,
+        outputTokens: outTokens,
+        turns:        retries,
+        retries,
+        exitSubtype: "success",
+        timeSeconds:  timeSecs,
+      };
+      writeFileSync(metaPath, JSON.stringify(meta, null, 2) + "\n", "utf-8");
+      log(`[generate] Wrote generation-meta.json — in=${inTokens} out=${outTokens} time=${timeSecs}s` +
+          (footerOut !== undefined && explicitOut === undefined ? " (output from footer)" : "") +
+          (explicitOut !== undefined ? " (output from --output-tokens flag)" : ""));
+    }
+  }
 
   if (testResult.failed === 0 && testResult.total > 0) {
     // Success — archive and clean up

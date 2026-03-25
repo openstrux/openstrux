@@ -29,7 +29,8 @@ set -euo pipefail
 #     [--model <model-id>]            \   # default: claude-sonnet-4-6 or gemini-2.5-pro
 #     [--provider <anthropic|openai|google-gemini>] \
 #     [--base-url <url>]              \   # override API endpoint
-#     [--response <file>]             \   # required for --mode apply
+#     [--response <file>]             \   # apply: fenced-block response file
+#     [--bench-branch <branch>]       \   # apply/prompt: override branch (default: bench-<slug>)
 #     [--result-dir <abs-path>]       \   # auto-generated if not provided
 #     [--with-db]                     \   # run integration tests (agent mode)
 #     [--no-db]                       \   # skip integration tests
@@ -60,26 +61,36 @@ PROVIDER=""
 BASE_URL=""
 RESPONSE_FILE=""
 RESULT_DIR_ARG=""
+BENCH_BRANCH_ARG=""
 WITH_DB=true
 KEEP_TEST_ENV=false
 NOTE=""
 MAX_TURNS="80"
+INPUT_TOKENS_ARG=""
+OUTPUT_TOKENS_ARG=""
+TIME_SECONDS_ARG=""
+RETRIES_ARG=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --uc)            UC_ROOT="$2";          shift 2 ;;
-    --path)          PATH_NAME="$2";        shift 2 ;;
-    --mode)          MODE="$2";             shift 2 ;;
-    --model)         MODEL="$2";            shift 2 ;;
-    --provider)      PROVIDER="$2";         shift 2 ;;
-    --base-url)      BASE_URL="$2";         shift 2 ;;
-    --response)      RESPONSE_FILE="$2";    shift 2 ;;
-    --result-dir)    RESULT_DIR_ARG="$2";   shift 2 ;;
-    --with-db)       WITH_DB=true;          shift ;;
-    --no-db)         WITH_DB=false;         shift ;;
-    --keep-test-env) KEEP_TEST_ENV=true;    shift ;;
-    --note)          NOTE="$2";             shift 2 ;;
-    --max-turns)     MAX_TURNS="$2";        shift 2 ;;
+    --uc)            UC_ROOT="$2";           shift 2 ;;
+    --path)          PATH_NAME="$2";         shift 2 ;;
+    --mode)          MODE="$2";              shift 2 ;;
+    --model)         MODEL="$2";             shift 2 ;;
+    --provider)      PROVIDER="$2";          shift 2 ;;
+    --base-url)      BASE_URL="$2";          shift 2 ;;
+    --response)      RESPONSE_FILE="$2";     shift 2 ;;
+    --result-dir)    RESULT_DIR_ARG="$2";    shift 2 ;;
+    --bench-branch)  BENCH_BRANCH_ARG="$2";  shift 2 ;;
+    --with-db)       WITH_DB=true;           shift ;;
+    --no-db)         WITH_DB=false;          shift ;;
+    --keep-test-env) KEEP_TEST_ENV=true;     shift ;;
+    --note)          NOTE="$2";              shift 2 ;;
+    --max-turns)     MAX_TURNS="$2";         shift 2 ;;
+    --input-tokens)  INPUT_TOKENS_ARG="$2";  shift 2 ;;
+    --output-tokens) OUTPUT_TOKENS_ARG="$2"; shift 2 ;;
+    --time-seconds)  TIME_SECONDS_ARG="$2";  shift 2 ;;
+    --retries)       RETRIES_ARG="$2";       shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -238,12 +249,19 @@ WORKTREE_DIR="${UC_ROOT}/../$(basename "$UC_ROOT")-bench-${RUN_SLUG}"
 if [[ -n "$RESULT_DIR_ARG" ]]; then
   RESULT_DIR="$RESULT_DIR_ARG"
 else
-  RESULT_DIR="${UC_ROOT}/results/${RUN_SLUG}"
+  RESULT_DIR="${UC_ROOT}/benchmarks/results/${RUN_SLUG}"
 fi
 
 mkdir -p "$RESULT_DIR"
 
-BENCH_BRANCH="bench-${RUN_SLUG}"
+# Derive bench branch: explicit override > result-dir slug (apply) > run slug (prompt/agent)
+if [[ -n "$BENCH_BRANCH_ARG" ]]; then
+  BENCH_BRANCH="$BENCH_BRANCH_ARG"
+elif [[ "$MODE" == "apply" && -n "$RESULT_DIR_ARG" ]]; then
+  BENCH_BRANCH="bench-$(basename "$RESULT_DIR_ARG")"
+else
+  BENCH_BRANCH="bench-${RUN_SLUG}"
+fi
 
 echo "============================================================"
 echo " Benchmark run : $RUN_SLUG"
@@ -307,27 +325,35 @@ SQL
   local db_url="postgresql://${user}:${pass}@127.0.0.1:5432/${db}"
 
   (cd "${worktree}" && \
-    pnpm --filter @grant-workflow/web exec prisma generate \
+    pnpm exec prisma generate \
     --schema=prisma/schema.prisma 2>&1 \
     | tee "${result_dir}/generate.log") || echo "Warning: prisma generate errors — see generate.log"
 
   local migrate_exit=0
-  if ls "${worktree}/app/web/prisma/migrations/"*.sql 2>/dev/null | head -1 | grep -q .; then
+  if ls "${worktree}/prisma/migrations/"*.sql 2>/dev/null | head -1 | grep -q .; then
     echo "Migrations found — running migrate deploy"
     (cd "${worktree}" && DATABASE_URL="$db_url" \
-      pnpm --filter @grant-workflow/web exec prisma migrate deploy \
+      pnpm exec prisma migrate deploy \
       --schema=prisma/schema.prisma 2>&1 \
       | tee "${result_dir}/migrate.log") || migrate_exit=$?
   else
     echo "No migrations found — using db push"
     (cd "${worktree}" && DATABASE_URL="$db_url" \
-      pnpm --filter @grant-workflow/web exec prisma db push \
+      pnpm exec prisma db push \
       --schema=prisma/schema.prisma --accept-data-loss --skip-generate 2>&1 \
       | tee "${result_dir}/migrate.log") || migrate_exit=$?
   fi
   if [[ $migrate_exit -ne 0 ]]; then
     echo "Warning: schema apply errors — see migrate.log"
   fi
+
+  # Seed canonical dev fixtures (users + default call) defined in openspec/specs/access-policies.md.
+  # The seeded rows are kept in the DB for manual inspection; everything is wiped by clean-test-env.
+  echo "Seeding dev fixtures (prisma/seeds/seed.ts)..."
+  (cd "${worktree}" && DATABASE_URL="$db_url" \
+    pnpm exec prisma db seed 2>&1 \
+    | tee "${result_dir}/seed.log") || echo "Warning: seed errors — see seed.log"
+
   return 0
 }
 
@@ -348,10 +374,10 @@ run_integration_tests() {
 # Copies result-dir into worktree/results/, commits, and pushes to remote branch.
 commit_results() {
   local worktree="$1" result_dir="$2" run_slug="$3" model="$4" path="$5" uc_root="$6" branch="$7"
-  local dest="${worktree}/results/$(basename "$result_dir")"
+  local dest="${worktree}/benchmarks/results/$(basename "$result_dir")"
   mkdir -p "$dest"
   cp -r "${result_dir}/." "$dest/"
-  git -C "$worktree" add results/
+  git -C "$worktree" add benchmarks/results/
   git -C "$worktree" \
     -c user.name="homofaber-tech" \
     -c user.email="olivierfabre@homofaberconsulting.com" \
@@ -422,11 +448,16 @@ if [[ "$MODE" == "apply" ]]; then
   # RV3.1: Derive slugs and branch from result-dir
   RUN_SLUG="$(basename "$RESULT_DIR")"
   DATE_SLUG="$(echo "$RUN_SLUG" | sed "s/-${PATH_NAME}$//")"
-  BENCH_BRANCH="bench-${RUN_SLUG}"
+  # --bench-branch overrides the default bench-<slug> derivation (e.g. to point at a CC branch)
+  [[ -z "$BENCH_BRANCH_ARG" ]] && BENCH_BRANCH="bench-${RUN_SLUG}"
 
   echo "=== Applying response ==="
   RESPONSE_ARG=()
-  [[ -n "$RESPONSE_FILE" ]] && RESPONSE_ARG=(--response "$RESPONSE_ABS")
+  [[ -n "$RESPONSE_FILE" ]]      && RESPONSE_ARG+=(--response       "$RESPONSE_ABS")
+  [[ -n "$INPUT_TOKENS_ARG" ]]   && RESPONSE_ARG+=(--input-tokens   "$INPUT_TOKENS_ARG")
+  [[ -n "$OUTPUT_TOKENS_ARG" ]]  && RESPONSE_ARG+=(--output-tokens  "$OUTPUT_TOKENS_ARG")
+  [[ -n "$TIME_SECONDS_ARG" ]]   && RESPONSE_ARG+=(--time-seconds   "$TIME_SECONDS_ARG")
+  [[ -n "$RETRIES_ARG" ]]        && RESPONSE_ARG+=(--retries        "$RETRIES_ARG")
   node --experimental-strip-types "$RUNNER_DIR/generate.ts" \
     --mode        apply \
     --path        "$PATH_NAME" \
@@ -436,11 +467,11 @@ if [[ "$MODE" == "apply" ]]; then
     "${RESPONSE_ARG[@]}"
 
   # RV3.2: prisma generate (if schema present)
-  if [[ -f "$WORKTREE_FROM_FILE/app/web/prisma/schema.prisma" ]]; then
+  if [[ -f "$WORKTREE_FROM_FILE/prisma/schema.prisma" ]]; then
     echo ""
     echo "=== prisma generate ==="
     (cd "$WORKTREE_FROM_FILE" && \
-      pnpm --filter @grant-workflow/web exec prisma generate \
+      pnpm exec prisma generate \
       --schema=prisma/schema.prisma 2>&1) || true
   fi
 
@@ -457,9 +488,13 @@ if [[ "$MODE" == "apply" ]]; then
     && run_integration_tests "$WORKTREE_FROM_FILE" "$RESULT_DIR" "$DB_URL" \
     || INTEG_OK=false
 
-  # Drop bench DB/user immediately after apply mode (no --keep-test-env in apply)
-  sudo -u postgres dropdb -h 127.0.0.1 --if-exists "$BENCH_DB" 2>/dev/null || true
-  sudo -u postgres dropuser -h 127.0.0.1 --if-exists "$BENCH_USER" 2>/dev/null || true
+  if [[ "$KEEP_TEST_ENV" == "false" ]]; then
+    sudo -u postgres dropdb -h 127.0.0.1 --if-exists "$BENCH_DB" 2>/dev/null || true
+    sudo -u postgres dropuser -h 127.0.0.1 --if-exists "$BENCH_USER" 2>/dev/null || true
+  else
+    echo "Kept bench DB (--keep-test-env): $DB_URL"
+    echo "  clean up: run-benchmark.sh --mode clean-test-env --uc $UC_ROOT --result-dir $RESULT_DIR"
+  fi
 
   # RV3.3: Merge integration counts into benchmark.json
   if [[ -f "${RESULT_DIR}/test-integration.json" ]]; then
@@ -478,7 +513,38 @@ console.log("Updated benchmark.json with integration results.");
 JSEOF
   fi
 
-  # RV3.4 / RV2.2: Commit results to bench branch
+  # RV3.4: Re-bundle evidence.zip to include integration test artefacts produced after save-result.sh ran
+  if [[ -f "${RESULT_DIR}/evidence.zip" ]]; then
+    echo ""
+    echo "=== Re-bundling evidence.zip (post-integration) ==="
+    python3 - "${RESULT_DIR}" "${RESULT_DIR}/evidence.zip" \
+        "benchmark.json" "generation-meta.json" "evidence.zip" <<'PYEOF'
+import zipfile, os, sys
+result_dir, out_path, *keep = sys.argv[1:]
+keep_set = set(keep)
+# Read existing zip entries
+existing = {}
+if os.path.exists(out_path):
+    with zipfile.ZipFile(out_path, 'r') as zf:
+        for name in zf.namelist():
+            existing[name] = zf.read(name)
+# Add/overwrite with any loose files not in keep_set
+for name in sorted(os.listdir(result_dir)):
+    if name in keep_set:
+        continue
+    fp = os.path.join(result_dir, name)
+    if os.path.isfile(fp):
+        with open(fp, 'rb') as f:
+            existing[name] = f.read()
+# Write merged zip
+with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+    for name, data in sorted(existing.items()):
+        zf.writestr(name, data)
+print("Re-bundled evidence.zip")
+PYEOF
+  fi
+
+  # RV3.5 / RV2.2: Commit results to bench branch
   echo ""
   echo "=== Committing results ==="
   commit_results "$WORKTREE_FROM_FILE" "$RESULT_DIR" "$RUN_SLUG" "$MODEL" "$PATH_NAME" "$UC_ROOT" "$BENCH_BRANCH"
@@ -640,6 +706,34 @@ bench.testSuites.integration = {
 writeFileSync("${RESULT_DIR}/benchmark.json", JSON.stringify(bench, null, 2));
 console.log("Updated benchmark.json with integration results.");
 JSEOF
+fi
+
+# Step 7.5: Re-bundle evidence.zip to include integration artefacts (migrate.log, seed.log, test-integration*)
+if [[ -f "${RESULT_DIR}/evidence.zip" ]]; then
+  echo ""
+  echo "=== Step 7.5: Re-bundling evidence.zip (post-integration) ==="
+  python3 - "${RESULT_DIR}" "${RESULT_DIR}/evidence.zip" \
+      "benchmark.json" "generation-meta.json" "evidence.zip" <<'PYEOF'
+import zipfile, os, sys
+result_dir, out_path, *keep = sys.argv[1:]
+keep_set = set(keep)
+existing = {}
+if os.path.exists(out_path):
+    with zipfile.ZipFile(out_path, 'r') as zf:
+        for name in zf.namelist():
+            existing[name] = zf.read(name)
+for name in sorted(os.listdir(result_dir)):
+    if name in keep_set:
+        continue
+    fp = os.path.join(result_dir, name)
+    if os.path.isfile(fp):
+        with open(fp, 'rb') as f:
+            existing[name] = f.read()
+with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+    for name, data in sorted(existing.items()):
+        zf.writestr(name, data)
+print("Re-bundled evidence.zip")
+PYEOF
 fi
 
 # Step 8: Commit results to bench branch
