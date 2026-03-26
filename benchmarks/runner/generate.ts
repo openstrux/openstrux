@@ -933,6 +933,9 @@ async function promptMode(): Promise<void> {
       `git branch --show-current   # must print: ${branchArg}\n` +
       `\`\`\`\n\n` +
       `If it does not print \`${branchArg}\`, stop — something is wrong with the setup.\n\n` +
+      `**IMPORTANT — do NOT create a new branch.** You are already on the correct benchmark branch. ` +
+      `Do not run \`git checkout -b\` or any command that switches branches. ` +
+      `Commit and push directly to \`${branchArg}\`.\n\n` +
       `When your implementation is complete:\n\n` +
       `\`\`\`bash\n` +
       `git add -A\n` +
@@ -942,6 +945,20 @@ async function promptMode(): Promise<void> {
       `A brief summary of what you implemented is sufficient as your response — ` +
       `no need to paste file contents.`,
     );
+
+    // Inject a CLAUDE.md into the worktree so the branch constraint is always
+    // in context, even if the user pastes only part of the prompt.
+    const claudeMdPath = join(worktree, "CLAUDE.md");
+    const claudeMdContent =
+      `# Benchmark worktree — Claude Code instructions\n\n` +
+      `This directory is a benchmark worktree. Follow these rules:\n\n` +
+      `- **Branch:** you are on \`${branchArg}\`. Do NOT create a new branch or run \`git checkout -b\`.\n` +
+      `- **Push target:** always \`git push origin ${branchArg}\`.\n` +
+      `- **No migration commands:** do not run \`prisma migrate dev\` or \`prisma db push\` — the benchmark runner applies the schema after generation.\n` +
+      `- **Prisma JSON fields:** when writing to a Prisma \`Json\` field, cast via \`as unknown as Prisma.InputJsonValue\` to satisfy TypeScript.\n` +
+      `- **tsc scope:** run \`tsc --noEmit\` at the project root. Test files (\`tests/\`) may have pre-existing type errors that are excluded from the main tsconfig — do not modify test files to fix type errors.\n`;
+    writeFileSync(claudeMdPath, claudeMdContent, "utf-8");
+    console.log(`[generate] Wrote CLAUDE.md → ${claudeMdPath}`);
   }
 
   // Append a token-reporting footer so apply mode can recover output token count
