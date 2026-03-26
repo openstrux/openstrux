@@ -34,6 +34,67 @@ tmp/                     Working drafts only — promote to openstrux-spec via c
 - Draft spec material goes to `tmp/` then migrates to `openstrux-spec` — never stays here permanently.
 - `tmp/` is untracked working space; do not commit tmp files to main.
 
+## Benchmark runner — quick reference
+
+UC repo: `../openstrux-uc-grant-workflow`
+Runner: `benchmarks/runner/run-benchmark.sh`
+Paths: `direct` | `openstrux`
+Modes: `prompt` | `agent` | `apply` | `clean-test-env`
+
+### Typical workflow — prompt → CC session → apply
+
+```bash
+# Step 1: generate prompt + worktree
+benchmarks/runner/run-benchmark.sh \
+  --uc ../openstrux-uc-grant-workflow \
+  --path direct \
+  --mode prompt
+
+# Step 2: run CC in the worktree (printed at end of step 1)
+#   claude "<worktree-path>"
+#   paste prompt-direct.txt; CC commits & pushes to bench branch
+#   token usage captured automatically on session end
+
+# Step 3: apply (--keep-test-env keeps worktree + DB for manual tests)
+benchmarks/runner/run-benchmark.sh \
+  --uc ../openstrux-uc-grant-workflow \
+  --path direct \
+  --mode apply \
+  --result-dir ../openstrux-uc-grant-workflow/benchmarks/results/<slug> \
+  --keep-test-env
+
+# Clean up when done
+benchmarks/runner/run-benchmark.sh \
+  --mode clean-test-env \
+  --uc ../openstrux-uc-grant-workflow \
+  --result-dir ../openstrux-uc-grant-workflow/benchmarks/results/<slug>
+```
+
+### Key flags
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--path` | — | `direct` or `openstrux` |
+| `--mode` | `agent` | `prompt`, `agent`, `apply`, `clean-test-env` |
+| `--model` | `claude-sonnet-4-6` | any model ID |
+| `--provider` | auto from model | `anthropic`, `openai`, `google-gemini` |
+| `--keep-test-env` | false | keep worktree + bench DB after tests |
+| `--no-db` | — | skip integration tests |
+| `--result-dir` | auto-generated | required for apply |
+| `--response` | — | apply: fenced-block file (omit if CC pushed) |
+| `--max-turns` | 80 | agent mode only |
+
+### Result dir layout (auto: `../openstrux-uc-grant-workflow/benchmarks/results/<YYYYMMDD-HHmmss>-<path>`)
+
+```
+prompt-<path>.txt     assembled prompt
+worktree.txt          abs path to worktree
+response-agent.txt    agent conversation log
+test-unit.json        final unit test results
+generation-meta.json  tokens / turns / time
+evidence.zip          bundled artefacts
+```
+
 ## Commit format
 
 **Title:** imperative, ≤ 72 chars.

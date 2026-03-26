@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Prompt assembly and persistence
 In `--mode prompt`, `generate.ts` SHALL assemble the full benchmark prompt from the worktree's config and prompt files, write it to the result-dir, and exit without calling any LLM. For the openstrux path, it SHALL additionally inject the bundled strux CLI and the Openstrux skill into the worktree.

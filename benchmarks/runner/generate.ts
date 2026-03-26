@@ -90,6 +90,9 @@ import {
   existsSync,
   appendFileSync,
   readdirSync,
+  cpSync,
+  copyFileSync,
+  chmodSync,
 } from "node:fs";
 import { join, resolve, dirname, basename } from "node:path";
 import { execSync } from "node:child_process";
@@ -269,48 +272,67 @@ using the Openstrux language as an intermediate representation.
 
 ## Your task
 
-Generate .strux source files that describe the data flows, then run \`npx strux build\`
-to compile them to TypeScript. Gap-fill any remaining stubs so all unit tests pass.
+Generate .strux source files that describe the domain model and data flows,
+then compile them to TypeScript via \`npx strux build\`, then gap-fill any
+remaining stubs so all unit tests pass.
 
 The contract stubs define the exact API surfaces — field names must be preserved exactly.
 
 ## Steps
 
-1. **Read the stubs first** — they define the exact contract:
-   - packages/domain/src/schemas/index.ts
-   - packages/policies/src/index.ts
-   - app/web/src/lib/dal.ts
-   - app/web/src/server/services/submissionService.ts
-   - app/web/src/server/services/eligibilityService.ts
-   - app/web/src/app/api/intake/route.ts
-   - app/web/src/app/api/eligibility/route.ts
+1. **Learn the Openstrux language** — read these files in order:
+   - openstrux-lang/syntax-reference.md (mandatory — start here)
+   - openstrux-lang/examples/ (concrete .strux files, especially p0-domain-model.strux)
+   - openstrux-lang/grammar.md, openstrux-lang/type-system.md (only if stuck)
 
-2. **Read the unit tests** — acceptance criteria:
-   - tests/unit/ (all *.test.ts files)
-   - tests/fixtures/ (JSON fixtures)
+2. **Read the stubs** — they define the exact contract:
+   - src/domain/schemas/index.ts
+   - src/policies/index.ts
+   - src/lib/dal.ts
+   - src/server/services/submissionService.ts
+   - src/server/services/eligibilityService.ts
+   - src/app/api/intake/route.ts
+   - src/app/api/eligibility/route.ts
 
 3. **Read the domain specs** for business logic:
    - openspec/specs/domain-model.md, openspec/specs/workflow-states.md
    - openspec/specs/access-policies.md, openspec/specs/mvp-profile.md
 
-4. **Read the Openstrux language reference** if present:
-   - ../openstrux-spec/specs/core/syntax-reference.md
+4. **Write .strux source files** under pipelines/ and specs/:
+   - specs/p0-domain-model.strux — @type definitions for all P0-P2 entities
+   - strux.context — project-wide @context (controller, DPO, named @source)
+   - pipelines/intake/p1-intake.strux — intake pipeline panel
+   - pipelines/eligibility/p2-eligibility.strux — eligibility pipeline panel
 
-5. **Write .strux source files** under pipelines/ as appropriate.
+5. **Run strux build**: \`npx strux build --explain\`
 
-6. **Run strux build**: \`npx strux build --explain\`
+   \`strux build\` generates the following into \`.openstrux/build/\`:
+   - TypeScript type definitions (from \`@type\` declarations)
+   - Zod schemas (from \`@type\` + constraints)
+   - Prisma schema fragments
+   - Route handler scaffolds (from \`receive\`/\`respond\` panels)
+   - Prisma client re-export
 
-7. **Gap-fill** any TypeScript stubs that strux build did not generate.
+   Generated artifacts are importable via the \`@openstrux/build/*\` tsconfig path alias, e.g.:
+   \`import type { Submission } from "@openstrux/build/types";\`
 
-8. **Run unit tests**: \`pnpm test:unit\`
+6. **Gap-fill** the TypeScript stubs that \`strux build\` does not cover — these require hand-written implementations:
+   - Service layer (\`src/server/services/\`) — business rules, orchestration
+   - Policy functions (\`src/policies/index.ts\`) — \`evaluateEligibility\`, \`createBlindedPacket\`, \`isValidTransition\`, \`getNextStatus\`
+   - DAL (\`src/lib/dal.ts\`) — \`verifySession\`
+   - Auth-aware route handlers (\`src/app/api/*/route.ts\`) — call \`verifySession\`, return 401/403 before business logic
+   - Seed (\`prisma/seeds/seed.ts\`) — upsert fixtures; idempotent
 
-9. **Read failures carefully**. Fix them. Repeat until all tests pass.
+7. **Run unit tests**: \`pnpm test:unit\`
+
+8. **Read failures carefully**. Fix them. Repeat until all tests pass.
 
 ## Hard constraints
 - Do NOT rename or change schema field names — the stubs define the exact contract.
 - Do NOT modify any file under tests/.
 - Do NOT modify package.json, pnpm-lock.yaml, or pnpm-workspace.yaml.
 - All TypeScript must compile (strict mode).
+- .strux files MUST be written — this is the openstrux benchmark path. Do not skip straight to TypeScript.
 `;
 
 const taskPrompt = pathArg === "openstrux" ? OPENSTRUX_PROMPT : DIRECT_PROMPT;
@@ -346,6 +368,153 @@ function loadConfig(wt: string): BenchmarkConfig {
   return JSON.parse(readFileSync(configPath, "utf-8")) as BenchmarkConfig;
 }
 
+// ---------------------------------------------------------------------------
+// Openstrux spec bundle — inject into worktree so the generating LLM has
+// local access to the language reference, deep specs, and concrete examples.
+// ---------------------------------------------------------------------------
+
+/** Files to copy from openstrux-spec into worktree/openstrux-lang/. */
+const SPEC_BUNDLE_CORE = [
+  "specs/core/syntax-reference.md",
+  "specs/core/grammar.md",
+  "specs/core/type-system.md",
+  "specs/core/panel-shorthand.md",
+  "specs/core/config-inheritance.md",
+  "specs/core/semantics.md",
+  "specs/core/access-context.strux",
+];
+
+/** Conformance examples — curated subset that demonstrates key patterns. */
+const SPEC_BUNDLE_EXAMPLES = [
+  "conformance/valid/p0-domain-model.strux",
+  "conformance/valid/v003-panel-shorthand.strux",
+  "conformance/valid/v020-validate-schema-ref.strux",
+  "conformance/valid/v020-write-data-target.strux",
+  "conformance/valid/v010-context-named-source.strux",
+];
+
+/**
+ * Copy the openstrux-spec bundle into `<worktree>/openstrux-lang/`.
+ * Returns the number of files copied, or 0 if the spec repo wasn't found.
+ */
+function injectSpecBundle(wt: string): number {
+  // Locate openstrux-spec as a sibling of the UC repo (standard layout)
+  const specRoot = join(wt, "../openstrux-spec");
+  if (!existsSync(specRoot)) {
+    // Try via the openstrux hub repo
+    const hubSpec = join(wt, "../openstrux/openstrux-spec");
+    if (!existsSync(hubSpec)) {
+      console.warn("[generate] Warning: openstrux-spec not found — skipping spec bundle injection");
+      return 0;
+    }
+    return doInjectSpecBundle(wt, hubSpec);
+  }
+  return doInjectSpecBundle(wt, specRoot);
+}
+
+function doInjectSpecBundle(wt: string, specRoot: string): number {
+  const destRoot = join(wt, "openstrux-lang");
+  let copied = 0;
+
+  for (const relPath of [...SPEC_BUNDLE_CORE, ...SPEC_BUNDLE_EXAMPLES]) {
+    const src = join(specRoot, relPath);
+    if (!existsSync(src)) {
+      console.warn(`[generate] Warning: spec file not found: ${relPath} — skipping`);
+      continue;
+    }
+    // Flatten examples into openstrux-lang/examples/
+    const isExample = relPath.startsWith("conformance/");
+    const destPath = isExample
+      ? join(destRoot, "examples", basename(relPath))
+      : join(destRoot, basename(relPath));
+    mkdirSync(dirname(destPath), { recursive: true });
+    copyFileSync(src, destPath);
+    copied++;
+  }
+
+  // Write a README so the model understands the layout
+  const readme =
+    `# Openstrux Language Reference (injected by benchmark runner)\n\n` +
+    `This directory contains a curated subset of the openstrux-spec repository.\n` +
+    `It is the source of truth for the Openstrux language when writing \`.strux\` files.\n\n` +
+    `## Reading order\n\n` +
+    `1. **\`syntax-reference.md\`** — self-sufficient compact reference. Start here.\n` +
+    `2. **\`examples/\`** — concrete \`.strux\` files that parse and typecheck cleanly.\n` +
+    `   - \`p0-domain-model.strux\` — types + panel for a grant-workflow domain (closest to your task)\n` +
+    `   - \`v003-panel-shorthand.strux\` — shorthand syntax demo\n` +
+    `   - \`v020-validate-schema-ref.strux\` — validate rod with SchemaRef\n` +
+    `   - \`v020-write-data-target.strux\` — write-data with DataTarget\n` +
+    `   - \`v010-context-named-source.strux\` — named @source resolution\n` +
+    `3. **Deep specs** — load only when syntax-reference is insufficient:\n` +
+    `   - \`grammar.md\` — full EBNF\n` +
+    `   - \`type-system.md\` — union/record/enum, type paths\n` +
+    `   - \`panel-shorthand.md\` — shorthand derivation rules\n` +
+    `   - \`config-inheritance.md\` — context cascade semantics\n` +
+    `   - \`semantics.md\` — evaluation model\n` +
+    `   - \`access-context.strux\` — AccessContext type definitions\n`;
+  writeFileSync(join(destRoot, "README.md"), readme, "utf-8");
+  copied++;
+
+  console.log(`[generate] Injected spec bundle: ${copied} files → ${destRoot}`);
+  return copied;
+}
+
+/**
+ * Inject the bundled strux CLI into the worktree so `npx strux build` works.
+ * Copies strux-standalone.mjs to <wt>/.openstrux/cli/strux.mjs and creates
+ * a shell wrapper at <wt>/node_modules/.bin/strux.
+ */
+function injectStruxCli(wt: string): void {
+  // Locate the bundled CLI from the sibling openstrux-core repo
+  const candidates = [
+    join(wt, "../openstrux-core/packages/cli/dist/strux-standalone.mjs"),
+    join(wt, "../openstrux/openstrux-core/packages/cli/dist/strux-standalone.mjs"),
+  ];
+  const src = candidates.find((p) => existsSync(p));
+  if (!src) {
+    console.warn("[generate] Warning: strux-standalone.mjs not found — skipping CLI injection");
+    console.warn("[generate] Searched:", candidates.join(", "));
+    return;
+  }
+
+  const cliDir = join(wt, ".openstrux/cli");
+  mkdirSync(cliDir, { recursive: true });
+  const dest = join(cliDir, "strux.mjs");
+  copyFileSync(src, dest);
+  chmodSync(dest, 0o755);
+
+  // Create shell wrapper at node_modules/.bin/strux
+  const binDir = join(wt, "node_modules/.bin");
+  mkdirSync(binDir, { recursive: true });
+  const wrapper = join(binDir, "strux");
+  const wrapperContent =
+    `#!/bin/sh\nexec node "$(dirname "$0")/../../.openstrux/cli/strux.mjs" "$@"\n`;
+  writeFileSync(wrapper, wrapperContent, "utf-8");
+  chmodSync(wrapper, 0o755);
+
+  console.log(`[generate] Injected strux CLI → ${dest}`);
+}
+
+/**
+ * Inject the Openstrux Claude Code skill into the worktree so the generating
+ * LLM has access to it without needing the global skill directory.
+ */
+function injectSkill(wt: string): void {
+  const runnerDir = dirname(new URL(import.meta.url).pathname);
+  // The skill lives at .claude/skills/openstrux/SKILL.md relative to the openstrux hub repo
+  const hubRoot = join(runnerDir, "../..");
+  const src = join(hubRoot, ".claude/skills/openstrux/SKILL.md");
+  if (!existsSync(src)) {
+    console.warn("[generate] Warning: openstrux SKILL.md not found — skipping skill injection");
+    console.warn("[generate] Searched:", src);
+    return;
+  }
+  const destDir = join(wt, ".claude/skills/openstrux");
+  mkdirSync(destDir, { recursive: true });
+  copyFileSync(src, join(destDir, "SKILL.md"));
+  console.log(`[generate] Injected openstrux skill → ${destDir}/SKILL.md`);
+}
+
 function assemblePrompt(
   wt: string,
   config: BenchmarkConfig,
@@ -364,13 +533,17 @@ function assemblePrompt(
   }
 
   if (pathArg === "openstrux") {
-    const syntaxRef = join(wt, "../openstrux-spec/specs/core/syntax-reference.md");
+    // Include the syntax reference inline in the prompt (it's the primary
+    // learning material and small enough to include directly).
+    const syntaxRef = join(wt, "openstrux-lang/syntax-reference.md");
     if (existsSync(syntaxRef)) {
-      parts.splice(parts.length - 2, 0,
+      // Insert before Path Instructions (second-to-last or third-to-last)
+      const insertIdx = parts.length - (opts.skipOutputFormat ? 1 : 2);
+      parts.splice(insertIdx, 0,
         section("Openstrux Language Reference", readFileSync(syntaxRef, "utf-8")));
-      console.log("[generate] Included openstrux-spec/syntax-reference.md");
+      console.log("[generate] Included syntax-reference.md from spec bundle");
     } else {
-      console.warn("[generate] Warning: openstrux-spec/syntax-reference.md not found — skipping");
+      console.warn("[generate] Warning: syntax-reference.md not found in spec bundle — skipping");
     }
   }
 
@@ -899,6 +1072,13 @@ async function agentMode(): Promise<void> {
   log(`[generate] api-endpoint=${baseUrl}`);
   log("");
 
+  // Inject openstrux spec bundle so the agent has local access to language docs
+  if (pathArg === "openstrux") {
+    injectSpecBundle(worktree);
+    injectStruxCli(worktree);
+    injectSkill(worktree);
+  }
+
   if (provider === "anthropic") {
     await runAnthropicAgent();
   } else {
@@ -914,6 +1094,14 @@ async function agentMode(): Promise<void> {
 async function promptMode(): Promise<void> {
   console.log(`[generate] mode=prompt path=${pathArg}`);
   console.log(`[generate] worktree=${worktree}`);
+
+  // Inject openstrux spec bundle into worktree (before prompt assembly so
+  // assemblePrompt can read syntax-reference.md from the local copy).
+  if (pathArg === "openstrux") {
+    injectSpecBundle(worktree);
+    injectStruxCli(worktree);
+    injectSkill(worktree);
+  }
 
   const config = loadConfig(worktree);
   // Branch mode: LLM pushes to git directly — fenced-block output format is not needed.
