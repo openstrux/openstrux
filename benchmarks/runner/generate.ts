@@ -1114,6 +1114,20 @@ async function promptMode(): Promise<void> {
   // Delivery section instructing Claude to push directly to that branch.
   // Web sessions cannot push to git and must not receive absolute paths (the
   // sandbox remaps them); they rely on fenced-block output + --mode apply instead.
+  if (branchArg && webMode) {
+    prompt += `\n\n---\n\n` + section(
+      "Delivery",
+      `**Your working directory is already the project root.** Use relative paths for all file operations — do not reference absolute paths.\n\n` +
+      `This run is tracking benchmark branch \`${branchArg}\`. You may end up on a different branch — that is expected for web sessions.\n\n` +
+      `When your implementation is complete, commit your work:\n\n` +
+      `\`\`\`bash\n` +
+      `git add -A\n` +
+      `git commit -m "feat(generation): implement backend (${pathArg} path)"\n` +
+      `\`\`\`\n\n` +
+      `Do **not** push — the apply step will locate your branch automatically via \`--bench-branch\`.\n\n` +
+      `In your final summary, include the output of \`git branch --show-current\` so the apply step can target the correct branch.`,
+    );
+  }
   if (branchArg && !webMode) {
     prompt += `\n\n---\n\n` + section(
       "Delivery",
@@ -1171,6 +1185,14 @@ async function promptMode(): Promise<void> {
   writeFileSync(promptFile,   prompt,   "utf-8");
   writeFileSync(worktreeFile, worktree, "utf-8");
 
+  // Pre-create numbered response slot files so the user has ready-made targets
+  // for each attempt. apply mode auto-detects responseN.txt for attempt N.
+  for (const n of [1, 2]) {
+    const slotPath = join(resultDir!, `response${n}.txt`);
+    if (!existsSync(slotPath)) writeFileSync(slotPath, "", "utf-8");
+  }
+  console.log(`[generate] Pre-created response1.txt, response2.txt in result dir`);
+
   // Write a Stop hook into the worktree's .claude/settings.json so that when a
   // Claude Code session runs there, it automatically captures token usage and
   // wall time into generation-meta.json at session end.  save-result.sh reads
@@ -1216,12 +1238,12 @@ async function promptMode(): Promise<void> {
     console.log(`   Upload the worktree as context if the interface supports it:`);
     console.log(`     ${worktree}`);
     console.log(`   Token counts cannot be captured automatically — note them manually.`);
-    console.log(`3. Save the full response to a file, e.g.:`);
-    console.log(`   ${resultDir}/response.txt`);
-    console.log(`4. Apply the response (pass token counts if known):`);
+    console.log(`3. Save the full response to response1.txt in the result dir:`);
+    console.log(`   ${resultDir}/response1.txt`);
+    console.log(`   (response1.txt is pre-created and empty — just overwrite it)`);
+    console.log(`4. Apply (auto-detects response1.txt; pass token counts if known):`);
     console.log(`   run-benchmark.sh --mode apply --path ${pathArg} \\`);
     console.log(`     --uc <uc-repo> --result-dir ${resultDir} \\`);
-    console.log(`     --response ${resultDir}/response.txt \\`);
     console.log(`     --input-tokens <N> --output-tokens <N>`);
   } else {
     console.log(`2. Paste its contents into a Claude Code session pointed at the WORKTREE:`);
@@ -1270,9 +1292,19 @@ async function applyMode(): Promise<void> {
   const attempt = existingAttempts + 1;
   console.log(`[generate] Attempt ${attempt}`);
 
-  if (responseFile) {
+  // Auto-detect responseN.txt if --response not provided (web session convention)
+  const effectiveResponseFile = responseFile ?? (() => {
+    const autoPath = join(resultDir!, `response${attempt}.txt`);
+    if (existsSync(autoPath) && readFileSync(autoPath, "utf-8").trim().length > 0) {
+      console.log(`[generate] Auto-detected response file: response${attempt}.txt`);
+      return autoPath;
+    }
+    return undefined;
+  })();
+
+  if (effectiveResponseFile) {
     // Response-file mode: extract fenced blocks and write to worktree
-    const responseAbs = resolve(responseFile);
+    const responseAbs = resolve(effectiveResponseFile);
     if (!existsSync(responseAbs)) {
       console.error(`Error: response file not found: ${responseAbs}`);
       process.exit(1);
@@ -1334,8 +1366,8 @@ async function applyMode(): Promise<void> {
   {
     // Parse <!-- benchmark-meta: {"outputTokens": N} --> from response text
     let footerOut: number | undefined;
-    if (responseFile) {
-      const responseAbs = resolve(responseFile);
+    if (effectiveResponseFile) {
+      const responseAbs = resolve(effectiveResponseFile);
       if (existsSync(responseAbs)) {
         const responseText = readFileSync(responseAbs, "utf-8");
         const m = responseText.match(/<!--\s*benchmark-meta:\s*(\{[^}]*\})\s*-->/);
@@ -1413,11 +1445,9 @@ async function applyMode(): Promise<void> {
     console.log("=".repeat(60) + "\n");
     console.log(retryPrompt);
     console.log("=".repeat(60));
-    console.log(`\nSave the response, then re-run:`);
-    console.log(`  node --experimental-strip-types generate.ts \\`);
-    console.log(`    --mode apply --path ${pathArg} \\`);
-    console.log(`    --result-dir ${resultDir} \\`);
-    console.log(`    --response <new-response-file>`);
+    console.log(`\nSave the response to \`response${attempt + 1}.txt\` in the result dir, then re-run:`);
+    console.log(`  run-benchmark.sh --mode apply --path ${pathArg} \\`);
+    console.log(`    --uc <uc-repo> --result-dir ${resultDir}`);
     process.exit(1);
   }
 }
