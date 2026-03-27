@@ -35,6 +35,7 @@ set -euo pipefail
 #     [--with-db]                     \   # run integration tests (agent mode)
 #     [--no-db]                       \   # skip integration tests
 #     [--keep-test-env]               \   # keep worktree + bench DB after tests
+#     [--web]                         \   # prompt mode: web-safe prompt (relative paths, fenced-block output)
 #     [--note <string>]               \
 #     [--max-turns <n>]                   # agent mode only, default: 80
 #
@@ -64,6 +65,7 @@ RESULT_DIR_ARG=""
 BENCH_BRANCH_ARG=""
 WITH_DB=true
 KEEP_TEST_ENV=false
+WEB_SESSION=false
 NOTE=""
 MAX_TURNS="80"
 INPUT_TOKENS_ARG=""
@@ -85,6 +87,7 @@ while [[ $# -gt 0 ]]; do
     --with-db)       WITH_DB=true;           shift ;;
     --no-db)         WITH_DB=false;          shift ;;
     --keep-test-env) KEEP_TEST_ENV=true;     shift ;;
+    --web)           WEB_SESSION=true;       shift ;;
     --note)          NOTE="$2";              shift 2 ;;
     --max-turns)     MAX_TURNS="$2";         shift 2 ;;
     --input-tokens)  INPUT_TOKENS_ARG="$2";  shift 2 ;;
@@ -402,12 +405,15 @@ if [[ "$MODE" == "prompt" ]]; then
   echo ""
 
   echo "=== Assembling prompt ==="
+  WEB_FLAG=""
+  [[ "$WEB_SESSION" == "true" ]] && WEB_FLAG="--web"
   node --experimental-strip-types "$RUNNER_DIR/generate.ts" \
     --mode       prompt \
     --path       "$PATH_NAME" \
     --worktree   "$WORKTREE_DIR" \
     --result-dir "$RESULT_DIR" \
-    --branch     "$BENCH_BRANCH"
+    --branch     "$BENCH_BRANCH" \
+    $WEB_FLAG
 
   echo ""
   echo "============================================================"

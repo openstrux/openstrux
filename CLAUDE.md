@@ -79,6 +79,7 @@ benchmarks/runner/run-benchmark.sh \
 | `--model` | `claude-sonnet-4-6` | any model ID |
 | `--provider` | auto from model | `anthropic`, `openai`, `google-gemini` |
 | `--keep-test-env` | false | keep worktree + bench DB after tests |
+| `--web` | false | prompt mode: web-safe prompt (relative paths, fenced-block output) |
 | `--no-db` | — | skip integration tests |
 | `--result-dir` | auto-generated | required for apply |
 | `--response` | — | apply: fenced-block file (omit if CC pushed) |

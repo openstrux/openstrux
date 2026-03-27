@@ -112,6 +112,7 @@ const responseFile   = arg("--response");
 const worktreeArg    = arg("--worktree");
 const resultDirArg   = arg("--result-dir");
 const branchArg      = arg("--branch");
+const webMode        = process.argv.includes("--web");
 const maxTurns       = parseInt(arg("--max-turns") ?? "80", 10);
 const maxWallMs      = 25 * 60 * 1000;
 // Optional explicit token/time overrides for apply mode (web-session runs)
@@ -1105,11 +1106,15 @@ async function promptMode(): Promise<void> {
 
   const config = loadConfig(worktree);
   // Branch mode: LLM pushes to git directly — fenced-block output format is not needed.
-  let prompt = assemblePrompt(worktree, config, { skipOutputFormat: !!branchArg });
+  // Web sessions output fenced code blocks (parsed by apply mode), so include
+  // the output format section even when a branch is provided.
+  let prompt = assemblePrompt(worktree, config, { skipOutputFormat: !!branchArg && !webMode });
 
-  // If a bench branch is provided, append a delivery section instructing Claude
-  // to push directly to that branch instead of pasting code blocks.
-  if (branchArg) {
+  // If a bench branch is provided AND this is a CC session (not web), append a
+  // Delivery section instructing Claude to push directly to that branch.
+  // Web sessions cannot push to git and must not receive absolute paths (the
+  // sandbox remaps them); they rely on fenced-block output + --mode apply instead.
+  if (branchArg && !webMode) {
     prompt += `\n\n---\n\n` + section(
       "Delivery",
       `**You must work inside the pre-created worktree directory** — do NOT work in the repo root.\n\n` +
@@ -1197,7 +1202,7 @@ async function promptMode(): Promise<void> {
   console.log("");
   console.log("=== Next steps ===");
   console.log(`1. Open ${promptFile}`);
-  if (branchArg) {
+  if (branchArg && !webMode) {
     console.log(`2. Start a Claude Code session pointed at the WORKTREE (not the repo root):`);
     console.log(`     claude "${worktree}"`);
     console.log(`   CC will work in ${worktree} on branch ${branchArg}.`);
@@ -1206,6 +1211,18 @@ async function promptMode(): Promise<void> {
     console.log(`3. Once Claude has pushed, apply (no response file needed):`);
     console.log(`   run-benchmark.sh --mode apply --path ${pathArg} \\`);
     console.log(`     --uc <uc-repo> --result-dir ${resultDir}`);
+  } else if (webMode) {
+    console.log(`2. Paste the prompt into claude.ai (or your web AI interface).`);
+    console.log(`   Upload the worktree as context if the interface supports it:`);
+    console.log(`     ${worktree}`);
+    console.log(`   Token counts cannot be captured automatically — note them manually.`);
+    console.log(`3. Save the full response to a file, e.g.:`);
+    console.log(`   ${resultDir}/response.txt`);
+    console.log(`4. Apply the response (pass token counts if known):`);
+    console.log(`   run-benchmark.sh --mode apply --path ${pathArg} \\`);
+    console.log(`     --uc <uc-repo> --result-dir ${resultDir} \\`);
+    console.log(`     --response ${resultDir}/response.txt \\`);
+    console.log(`     --input-tokens <N> --output-tokens <N>`);
   } else {
     console.log(`2. Paste its contents into a Claude Code session pointed at the WORKTREE:`);
     console.log(`     claude "${worktree}"`);
