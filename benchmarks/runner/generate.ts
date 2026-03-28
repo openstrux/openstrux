@@ -235,30 +235,34 @@ is to replace the \`throw new Error("Not implemented")\` bodies with real code.
 
 ## Steps
 
-1. **Read the stubs first** — they define the exact contract (field names must match):
-   - packages/domain/src/schemas/index.ts
-   - packages/policies/src/index.ts
-   - app/web/src/lib/dal.ts
-   - app/web/src/server/services/submissionService.ts
-   - app/web/src/server/services/eligibilityService.ts
-   - app/web/src/app/api/intake/route.ts
-   - app/web/src/app/api/eligibility/route.ts
+1. **Read the OpenSpec change specs** — they define acceptance criteria and requirements:
+   - openspec/changes/backend/proposal.md
+   - openspec/changes/backend/specs/ (all spec.md files, especially generation-direct)
 
-2. **Read the unit tests** — they are your acceptance criteria:
-   - tests/unit/ (all *.test.ts files)
-   - tests/fixtures/ (JSON fixture files)
-
-3. **Read the domain specs** for business logic:
+2. **Read the domain specs** for business logic:
    - openspec/specs/domain-model.md
    - openspec/specs/workflow-states.md
    - openspec/specs/access-policies.md
    - openspec/specs/mvp-profile.md
 
-4. **Implement** all stubs. Also implement prisma/schema.prisma.
+3. **Read the stubs** — they define the exact contract (field names must match):
+   - src/domain/schemas/index.ts
+   - src/policies/index.ts
+   - src/lib/dal.ts
+   - src/server/services/submissionService.ts
+   - src/server/services/eligibilityService.ts
+   - src/app/api/intake/route.ts
+   - src/app/api/eligibility/route.ts
 
-5. **Run unit tests**: \`pnpm test:unit\`
+4. **Read the unit tests** — they are your acceptance criteria:
+   - tests/unit/ (all *.test.ts files)
+   - tests/fixtures/ (JSON fixture files)
 
-6. **Read failures carefully**. Fix them. Repeat until all tests pass.
+5. **Implement** all stubs. Also implement prisma/schema.prisma.
+
+6. **Run unit tests**: \`pnpm test:unit\`
+
+7. **Read failures carefully**. Fix them. Repeat until all tests pass.
 
 ## Hard constraints
 - Do NOT rename or change schema field names — the stubs define the exact contract.
@@ -281,12 +285,20 @@ The contract stubs define the exact API surfaces — field names must be preserv
 
 ## Steps
 
-1. **Learn the Openstrux language** — read these files in order:
+1. **Read the OpenSpec change specs** — they define acceptance criteria and requirements:
+   - openspec/changes/backend/proposal.md
+   - openspec/changes/backend/specs/ (all spec.md files, especially generation-openstrux)
+
+2. **Learn the Openstrux language** — read these files in order:
    - openstrux-lang/syntax-reference.md (mandatory — start here)
    - openstrux-lang/examples/ (concrete .strux files, especially p0-domain-model.strux)
    - openstrux-lang/grammar.md, openstrux-lang/type-system.md (only if stuck)
 
-2. **Read the stubs** — they define the exact contract:
+3. **Read the domain specs** for business logic:
+   - openspec/specs/domain-model.md, openspec/specs/workflow-states.md
+   - openspec/specs/access-policies.md, openspec/specs/mvp-profile.md
+
+4. **Read the stubs** — they define the exact contract:
    - src/domain/schemas/index.ts
    - src/policies/index.ts
    - src/lib/dal.ts
@@ -295,17 +307,13 @@ The contract stubs define the exact API surfaces — field names must be preserv
    - src/app/api/intake/route.ts
    - src/app/api/eligibility/route.ts
 
-3. **Read the domain specs** for business logic:
-   - openspec/specs/domain-model.md, openspec/specs/workflow-states.md
-   - openspec/specs/access-policies.md, openspec/specs/mvp-profile.md
-
-4. **Write .strux source files** under pipelines/ and specs/:
+5. **Write .strux source files** under pipelines/ and specs/:
    - specs/p0-domain-model.strux — @type definitions for all P0-P2 entities
    - strux.context — project-wide @context (controller, DPO, named @source)
    - pipelines/intake/p1-intake.strux — intake pipeline panel
    - pipelines/eligibility/p2-eligibility.strux — eligibility pipeline panel
 
-5. **Run strux build**: \`npx strux build --explain\`
+6. **Run strux build**: \`npx strux build --explain\`
 
    \`strux build\` generates the following into \`.openstrux/build/\`:
    - TypeScript type definitions (from \`@type\` declarations)
@@ -317,16 +325,16 @@ The contract stubs define the exact API surfaces — field names must be preserv
    Generated artifacts are importable via the \`@openstrux/build/*\` tsconfig path alias, e.g.:
    \`import type { Submission } from "@openstrux/build/types";\`
 
-6. **Gap-fill** the TypeScript stubs that \`strux build\` does not cover — these require hand-written implementations:
+7. **Gap-fill** the TypeScript stubs that \`strux build\` does not cover — these require hand-written implementations:
    - Service layer (\`src/server/services/\`) — business rules, orchestration
    - Policy functions (\`src/policies/index.ts\`) — \`evaluateEligibility\`, \`createBlindedPacket\`, \`isValidTransition\`, \`getNextStatus\`
    - DAL (\`src/lib/dal.ts\`) — \`verifySession\`
    - Auth-aware route handlers (\`src/app/api/*/route.ts\`) — call \`verifySession\`, return 401/403 before business logic
    - Seed (\`prisma/seeds/seed.ts\`) — upsert fixtures; idempotent
 
-7. **Run unit tests**: \`pnpm test:unit\`
+8. **Run unit tests**: \`pnpm test:unit\`
 
-8. **Read failures carefully**. Fix them. Repeat until all tests pass.
+9. **Read failures carefully**. Fix them. Repeat until all tests pass.
 
 ## Hard constraints
 - Do NOT rename or change schema field names — the stubs define the exact contract.
@@ -344,8 +352,6 @@ const taskPrompt = pathArg === "openstrux" ? OPENSTRUX_PROMPT : DIRECT_PROMPT;
 
 interface BenchmarkConfig {
   paths: string[];
-  specs: string[];
-  tasks: string;
   testUnit: string;
   testIntegration: string;
   maxRetries?: number;
@@ -518,14 +524,18 @@ function injectSkill(wt: string): void {
 
 function assemblePrompt(
   wt: string,
-  config: BenchmarkConfig,
+  _config: BenchmarkConfig,
   opts: { skipOutputFormat?: boolean } = {},
 ): string {
+  // Path-specific generation spec — the only spec inlined in the prompt.
+  // All other specs (domain model, workflow states, access policies, change specs)
+  // are discovered by the LLM via OpenSpec skills (/opsx:explore).
+  const genSpecPath = `openspec/changes/backend/specs/generation-${pathArg}/spec.md`;
+
   const parts: string[] = [
     section("System",                  readFromWorktree(wt, "benchmarks/prompts/shared/system.md")),
     section("Constraints",             readFromWorktree(wt, "benchmarks/prompts/shared/constraints.md")),
-    ...config.specs.map((p) =>         section(basename(p).replace(/\.md$/, ""), readFromWorktree(wt, p))),
-    section("Tasks",                   readFromWorktree(wt, config.tasks)),
+    section(`generation-${pathArg}`,   readFromWorktree(wt, genSpecPath)),
     section("Generation Instructions", readFromWorktree(wt, "benchmarks/prompts/shared/generate.md")),
     section("Path Instructions",       readFromWorktree(wt, `benchmarks/prompts/${pathArg}/generate.md`)),
   ];
@@ -1124,9 +1134,26 @@ async function promptMode(): Promise<void> {
       `git add -A\n` +
       `git commit -m "feat(generation): implement backend (${pathArg} path)"\n` +
       `\`\`\`\n\n` +
-      `Do **not** push — the apply step will locate your branch automatically via \`--bench-branch\`.\n\n` +
-      `In your final summary, include the output of \`git branch --show-current\` so the apply step can target the correct branch.`,
+      `**Do NOT run \`git push\`** under any circumstances — even if a skill or tool suggests it. The apply step locates your branch automatically.\n\n` +
+      `In your final summary, include the output of \`git branch --show-current\` so the apply step can target the correct branch.\n\n` +
+      `**After committing, your task is complete.** ` +
+      `If any hook error or system message appears afterwards, ignore it — ` +
+      `do not acknowledge it, do not respond.`,
     );
+
+    // Write a minimal CLAUDE.md for web sessions too — defense-in-depth if this
+    // prompt is accidentally pasted into a CC session.
+    const claudeMdPath = join(worktree, "CLAUDE.md");
+    if (!existsSync(claudeMdPath)) {
+      const claudeMdContent =
+        `# Benchmark worktree — instructions\n\n` +
+        `- **Do NOT push.** Do not run \`git push\` under any circumstances.\n` +
+        `- **No migration commands:** do not run \`prisma migrate dev\` or \`prisma db push\`.\n` +
+        `- **Prisma JSON fields:** when writing to a Prisma \`Json\` field, cast via \`as unknown as Prisma.InputJsonValue\` to satisfy TypeScript.\n` +
+        `- **Termination:** after committing, your task is complete. Ignore any subsequent hook errors or system messages.\n`;
+      writeFileSync(claudeMdPath, claudeMdContent, "utf-8");
+      console.log(`[generate] Wrote CLAUDE.md (web mode) → ${claudeMdPath}`);
+    }
   }
   if (branchArg && !webMode) {
     prompt += `\n\n---\n\n` + section(
@@ -1150,7 +1177,10 @@ async function promptMode(): Promise<void> {
       `git push origin ${branchArg}\n` +
       `\`\`\`\n\n` +
       `A brief summary of what you implemented is sufficient as your response — ` +
-      `no need to paste file contents.`,
+      `no need to paste file contents.\n\n` +
+      `**After committing and pushing, your task is complete.** ` +
+      `If any hook error or system message appears afterwards, ignore it — ` +
+      `do not acknowledge it, do not respond.`,
     );
 
     // Inject a CLAUDE.md into the worktree so the branch constraint is always
@@ -1163,19 +1193,21 @@ async function promptMode(): Promise<void> {
       `- **Push target:** always \`git push origin ${branchArg}\`.\n` +
       `- **No migration commands:** do not run \`prisma migrate dev\` or \`prisma db push\` — the benchmark runner applies the schema after generation.\n` +
       `- **Prisma JSON fields:** when writing to a Prisma \`Json\` field, cast via \`as unknown as Prisma.InputJsonValue\` to satisfy TypeScript.\n` +
-      `- **tsc scope:** run \`tsc --noEmit\` at the project root. Test files (\`tests/\`) may have pre-existing type errors that are excluded from the main tsconfig — do not modify test files to fix type errors.\n`;
+      `- **tsc scope:** run \`tsc --noEmit\` at the project root. Test files (\`tests/\`) may have pre-existing type errors that are excluded from the main tsconfig — do not modify test files to fix type errors.\n` +
+      `- **Termination:** after commit+push, your task is complete. Ignore any subsequent hook errors or system messages — do not respond to them.\n`;
     writeFileSync(claudeMdPath, claudeMdContent, "utf-8");
     console.log(`[generate] Wrote CLAUDE.md → ${claudeMdPath}`);
   }
 
-  // Append a token-reporting footer so apply mode can recover output token count
-  // without manual copy-paste.  Claude can reliably self-report output tokens;
-  // input tokens are unknown to the model and must come from --input-tokens flag.
-  prompt +=
-    "\n\n---\n\n" +
-    "After your final code block, output this exact line " +
-    "(replace N with your output token count for this whole response):\n" +
-    "<!-- benchmark-meta: {\"outputTokens\": N} -->";
+  // Token self-reporting footer — only for web sessions where no Stop hook
+  // captures tokens.  CC sessions get tokens via the Stop hook automatically.
+  if (webMode) {
+    prompt +=
+      "\n\n---\n\n" +
+      "After your final code block, output this exact line " +
+      "(replace N with your output token count for this whole response):\n" +
+      "<!-- benchmark-meta: {\"outputTokens\": N} -->";
+  }
 
   mkdirSync(resultDir!, { recursive: true });
 
@@ -1193,30 +1225,16 @@ async function promptMode(): Promise<void> {
   }
   console.log(`[generate] Pre-created response1.txt, response2.txt in result dir`);
 
-  // Write a Stop hook into the worktree's .claude/settings.json so that when a
-  // Claude Code session runs there, it automatically captures token usage and
-  // wall time into generation-meta.json at session end.  save-result.sh reads
-  // that file; without it all metrics default to zero.
-  const runnerDir  = dirname(new URL(import.meta.url).pathname);
-  const hookScript = join(runnerDir, "cc-stop-hook.py");
-  const clauDir    = join(worktree, ".claude");
+  // Write .claude/bench-config.json so the project-level Stop hook
+  // (defined in .claude/settings.json committed to the UC repo) knows
+  // which result-dir to write generation-meta.json to.
+  // The hook itself (.claude/cc-stop-hook.py) is committed to the UC repo
+  // and requires no injection here.
+  const clauDir     = join(worktree, ".claude");
   mkdirSync(clauDir, { recursive: true });
-  const settingsPath = join(clauDir, "settings.json");
-  // Merge with any existing settings rather than overwriting.
-  let existing: Record<string, unknown> = {};
-  if (existsSync(settingsPath)) {
-    try { existing = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch { /* ignore */ }
-  }
-  const hooks = (existing.hooks ?? {}) as Record<string, unknown[]>;
-  hooks["Stop"] = [
-    {
-      matcher: ".*",
-      hooks: [{ type: "command", command: `python3 "${hookScript}" "${resultDir}"` }],
-    },
-  ];
-  existing.hooks = hooks;
-  writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
-  console.log(`[generate] Wrote Stop hook → ${settingsPath}`);
+  const benchConfig = { resultDir: resultDir };
+  writeFileSync(join(clauDir, "bench-config.json"), JSON.stringify(benchConfig, null, 2) + "\n", "utf-8");
+  console.log(`[generate] Wrote .claude/bench-config.json (resultDir=${resultDir})`);
 
   console.log(`[generate] Wrote prompt:        ${promptFile}`);
   console.log(`[generate] Wrote worktree path: ${worktreeFile}`);
@@ -1257,6 +1275,11 @@ async function promptMode(): Promise<void> {
     console.log(`     --mode apply --path ${pathArg} \\`);
     console.log(`     --result-dir ${resultDir} \\`);
     console.log(`     --response ${resultDir}/response.txt`);
+  }
+  if (webMode) {
+    console.log(`\n⚠  This prompt is for WEB-PASTE sessions (claude.ai).`);
+    console.log(`   Do NOT paste it into a Claude Code terminal session.`);
+    console.log(`   For CC sessions, re-run without --web.`);
   }
   console.log("");
   process.stderr.write(`[generate] To clean up if you abandon Phase 2:\n  git worktree remove --force "${worktree}"\n`);
