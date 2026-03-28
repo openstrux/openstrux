@@ -304,6 +304,21 @@ fi
 # Helper functions
 # ---------------------------------------------------------------------------
 
+# prune_opposite_path_spec <worktree> <path>
+# Removes the generation spec for the OTHER path so the generating LLM only
+# sees constraints relevant to its own path when running /opsx:continue and
+# /opsx:apply. Without this, the LLM might pick up constraints from the wrong path.
+prune_opposite_path_spec() {
+  local worktree="$1" path="$2"
+  local other_path="openstrux"
+  [[ "$path" == "openstrux" ]] && other_path="direct"
+  local other_spec="$worktree/openspec/changes/backend/specs/generation-${other_path}"
+  if [[ -d "$other_spec" ]]; then
+    rm -rf "$other_spec"
+    echo "Pruned opposite-path spec: openspec/changes/backend/specs/generation-${other_path}/"
+  fi
+}
+
 # setup_bench_db <db> <user> <pass> <worktree> <result_dir>
 # Ensures postgres is running, creates user/db, runs prisma generate + migrate/push.
 setup_bench_db() {
@@ -398,6 +413,7 @@ if [[ "$MODE" == "prompt" ]]; then
   echo "=== Step 1: Create worktree ==="
   git -C "$UC_ROOT" worktree add -b "$BENCH_BRANCH" "$WORKTREE_DIR" HEAD
   git -C "$UC_ROOT" push origin "$BENCH_BRANCH" 2>/dev/null || echo "Note: branch push failed (skipped)"
+  prune_opposite_path_spec "$WORKTREE_DIR" "$PATH_NAME"
   echo ""
 
   echo "=== Step 2: Install dependencies ==="
@@ -610,6 +626,7 @@ trap cleanup EXIT
 echo "=== Step 1: Create worktree ==="
 git -C "$UC_ROOT" worktree add -b "$BENCH_BRANCH" "$WORKTREE_DIR" HEAD
 git -C "$UC_ROOT" push origin "$BENCH_BRANCH" 2>/dev/null || echo "Note: branch push failed (skipped)"
+prune_opposite_path_spec "$WORKTREE_DIR" "$PATH_NAME"
 echo ""
 
 # Step 2: Install dependencies
