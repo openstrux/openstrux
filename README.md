@@ -1,4 +1,6 @@
-<!-- ![Logo](OpenStrux.png) -->
+<p align="center">
+  <img src="OpenStrux.png" alt="Logo">
+</p>
 
 # Openstrux
 
@@ -45,12 +47,13 @@ flowchart LR
     A[".strux source"] --> B["Parser"]
     B --> C["Typed AST"]
     C --> D["Validator + Config Resolver"]
-    D --> E["snap.lock"]
-    E --> F["mf.strux.json"]
+    D --> E["Lock"]
+    E --> F["Manifest"]
     F --> G["Target Generator"]
     G --> H["TypeScript"]
     G --> I["Beam Python"]
-    G --> J["--explain"]
+    G --> J["Human Explain"]
+    G --> K["Other targets (future)"]
 ```
 
 The flow is simple by design: define the system once as structured source, validate it once with policy-aware checks, lock it once for deterministic rebuilds, and generate multiple targets from the same trusted base.
@@ -93,7 +96,7 @@ The long-term role of `openstrux-hub` is to make certification and reuse practic
 
 ## MVP Demo
 
-The MVP demonstrates Openstrux on a privacy-first blinded review workflow. Its goal is not to replace human reviewers, but to show that a compact structured source can generate secure application behavior, strong access controls, auditable workflows, and benchmark-ready outputs.
+The MVP demonstrates Openstrux on a privacy-first blinded review workflow (uc-grant-workflow). Its goal is to show that a compact structured source can generate secure application behavior, strong access controls, auditable workflows, and benchmark-ready outputs.
 
 The demo compares two execution paths over the same initialized target and task set. One path uses direct prompt-driven generation without Openstrux, and the other adds an Openstrux layer before generation so both can be compared on the same prompts, functional slices, validation rules, token counts, and execution measures.
 
