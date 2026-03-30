@@ -412,7 +412,6 @@ commit_results() {
 if [[ "$MODE" == "prompt" ]]; then
   echo "=== Step 1: Create worktree ==="
   git -C "$UC_ROOT" worktree add -b "$BENCH_BRANCH" "$WORKTREE_DIR" HEAD
-  git -C "$UC_ROOT" push origin "$BENCH_BRANCH" 2>/dev/null || echo "Note: branch push failed (skipped)"
   prune_opposite_path_spec "$WORKTREE_DIR" "$PATH_NAME"
   echo ""
 
@@ -430,6 +429,21 @@ if [[ "$MODE" == "prompt" ]]; then
     --result-dir "$RESULT_DIR" \
     --branch     "$BENCH_BRANCH" \
     $WEB_FLAG
+
+  # Commit injected tooling (CLI, spec bundle, skill, CLAUDE.md) to the bench
+  # branch so CC sessions on any machine get them when checking out the branch.
+  # These files are gitignored on main but needed in the worktree at runtime.
+  echo ""
+  echo "=== Committing injected tooling to bench branch ==="
+  # Stage injected files (--force overrides .gitignore) and any tracked deletions
+  # (e.g. pruned opposite-path spec).
+  git -C "$WORKTREE_DIR" add --force \
+    .openstrux/ openstrux-lang/ .claude/ CLAUDE.md 2>/dev/null || true
+  git -C "$WORKTREE_DIR" add -u 2>/dev/null || true
+  git -C "$WORKTREE_DIR" diff --cached --quiet \
+    || git -C "$WORKTREE_DIR" commit -m "chore(bench): inject tooling for ${PATH_NAME} path"
+  git -C "$WORKTREE_DIR" push origin "$BENCH_BRANCH" 2>/dev/null \
+    || echo "Note: tooling commit push failed (skipped)"
 
   echo ""
   echo "============================================================"

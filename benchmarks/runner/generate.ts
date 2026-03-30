@@ -1192,12 +1192,11 @@ async function promptMode(): Promise<void> {
   if (branchArg && !webMode) {
     prompt += `\n\n---\n\n` + section(
       "Delivery",
-      `**You must work inside the pre-created worktree directory** — do NOT work in the repo root.\n\n` +
-      `Worktree path: \`${worktree}\`\n\n` +
-      `That directory is already checked out on branch \`${branchArg}\`. ` +
+      `**Your current working directory is the benchmark worktree.** All paths are relative to it — do not use absolute paths.\n\n` +
+      `The worktree is already checked out on branch \`${branchArg}\`. ` +
       `Verify before touching any file:\n\n` +
       `\`\`\`bash\n` +
-      `git -C "${worktree}" branch --show-current   # must print: ${branchArg}\n` +
+      `git branch --show-current   # must print: ${branchArg}\n` +
       `\`\`\`\n\n` +
       `If it does not print \`${branchArg}\`, stop — something is wrong with the setup.\n\n` +
       `**IMPORTANT — do NOT create a new branch.** You are already on the correct benchmark branch. ` +
