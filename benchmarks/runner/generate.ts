@@ -469,7 +469,8 @@ function doInjectSpecBundle(wt: string, specRoot: string): number {
 /**
  * Inject the bundled strux CLI into the worktree so `npx strux build` works.
  * Copies strux-standalone.mjs to <wt>/.openstrux/cli/strux.mjs and creates
- * a shell wrapper at <wt>/node_modules/.bin/strux.
+ * shell, .cmd, and .ps1 wrappers at <wt>/node_modules/.bin/strux* so the
+ * binary is discoverable by npx on both Unix and Windows.
  */
 function injectStruxCli(wt: string): void {
   // Locate the bundled CLI from the sibling openstrux-core repo
@@ -490,14 +491,28 @@ function injectStruxCli(wt: string): void {
   copyFileSync(src, dest);
   chmodSync(dest, 0o755);
 
-  // Create shell wrapper at node_modules/.bin/strux
+  // Create wrappers at node_modules/.bin/strux (Unix shell, Windows .cmd, Windows .ps1)
+  // so that `npx strux` resolves correctly on all platforms.
   const binDir = join(wt, "node_modules/.bin");
   mkdirSync(binDir, { recursive: true });
-  const wrapper = join(binDir, "strux");
-  const wrapperContent =
-    `#!/bin/sh\nexec node "$(dirname "$0")/../../.openstrux/cli/strux.mjs" "$@"\n`;
-  writeFileSync(wrapper, wrapperContent, "utf-8");
-  chmodSync(wrapper, 0o755);
+
+  const shWrapper = join(binDir, "strux");
+  writeFileSync(shWrapper,
+    `#!/bin/sh\nexec node "$(dirname "$0")/../../.openstrux/cli/strux.mjs" "$@"\n`,
+    "utf-8");
+  chmodSync(shWrapper, 0o755);
+
+  // Windows cmd wrapper — %~dp0 includes a trailing backslash
+  const cmdWrapper = join(binDir, "strux.cmd");
+  writeFileSync(cmdWrapper,
+    `@ECHO off\r\nnode "%~dp0..\\..\\.openstrux\\cli\\strux.mjs" %*\r\n`,
+    "utf-8");
+
+  // Windows PowerShell wrapper
+  const ps1Wrapper = join(binDir, "strux.ps1");
+  writeFileSync(ps1Wrapper,
+    `#!/usr/bin/env pwsh\n$basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent\nnode "$basedir\\..\\..\\.openstrux\\cli\\strux.mjs" $args\nexit $LASTEXITCODE\n`,
+    "utf-8");
 
   console.log(`[generate] Injected strux CLI → ${dest}`);
 }
