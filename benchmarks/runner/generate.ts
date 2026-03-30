@@ -128,6 +128,25 @@ if (!["agent", "prompt", "apply"].includes(modeArg)) {
 }
 const mode = modeArg as "agent" | "prompt" | "apply";
 
+// ---------------------------------------------------------------------------
+// fnm bootstrap — evaluate once so all execSync calls inherit Node env vars.
+// On Windows + fnm, `cd` into a directory with .node-version triggers the
+// version-switching hook, which fails in non-interactive shells unless
+// FNM_DIR and friends are already in the environment.
+// ---------------------------------------------------------------------------
+(function bootstrapFnm() {
+  try {
+    const out = execSync("fnm env --shell bash", { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+    for (const line of out.split("\n")) {
+      // matches: export KEY="value"  or  export KEY=value
+      const m = line.match(/^export\s+([A-Za-z_][A-Za-z0-9_]*)=["']?([^"'\n]*)["']?/);
+      if (m) process.env[m[1]] = m[2];
+    }
+  } catch {
+    // fnm not installed or env already set — silently skip
+  }
+})();
+
 // In apply mode the worktree comes from worktree.txt — resolved later.
 let worktree  = resolve(worktreeArg ?? process.cwd());
 const resultDir = resultDirArg ? resolve(resultDirArg) : undefined;
@@ -1178,8 +1197,7 @@ async function promptMode(): Promise<void> {
       `That directory is already checked out on branch \`${branchArg}\`. ` +
       `Verify before touching any file:\n\n` +
       `\`\`\`bash\n` +
-      `cd "${worktree}"\n` +
-      `git branch --show-current   # must print: ${branchArg}\n` +
+      `git -C "${worktree}" branch --show-current   # must print: ${branchArg}\n` +
       `\`\`\`\n\n` +
       `If it does not print \`${branchArg}\`, stop — something is wrong with the setup.\n\n` +
       `**IMPORTANT — do NOT create a new branch.** You are already on the correct benchmark branch. ` +
@@ -1209,6 +1227,8 @@ async function promptMode(): Promise<void> {
       `- **No migration commands:** do not run \`prisma migrate dev\` or \`prisma db push\` — the benchmark runner applies the schema after generation.\n` +
       `- **Prisma JSON fields:** when writing to a Prisma \`Json\` field, cast via \`as unknown as Prisma.InputJsonValue\` to satisfy TypeScript.\n` +
       `- **tsc scope:** run \`tsc --noEmit\` at the project root. Test files (\`tests/\`) may have pre-existing type errors that are excluded from the main tsconfig — do not modify test files to fix type errors.\n` +
+      `- **Tool preference:** use \`Read\` instead of \`cat\`, \`Glob\` instead of \`ls\`, \`Grep\` instead of \`grep\`/\`rg\`. Reserve \`Bash\` for running tests, TypeScript checks, git, and build commands only.\n` +
+      `- **Windows + fnm:** do NOT use \`cd <path> && <cmd>\` patterns — use \`git -C <path> <cmd>\` for git, and run other commands directly from the worktree root. The \`cd\` shell builtin triggers fnm node-version switching which fails in non-interactive shells.\n` +
       `- **Termination:** after commit+push, your task is complete. Ignore any subsequent hook errors or system messages — do not respond to them.\n`;
     writeFileSync(claudeMdPath, claudeMdContent, "utf-8");
     console.log(`[generate] Wrote CLAUDE.md → ${claudeMdPath}`);

@@ -4,7 +4,7 @@ AI can generate software faster than humans can review it, but most of what it p
 
 Software should be AI-native. It should be token- and cost-efficient, using a small vocabulary, dense semantics, short keywords, and minimal boilerplate so models spend context on meaning instead of syntax.
 
-Software should be certified by design. In Openstrux, components are defined with explicit interfaces, explicit intent, typed connections, and certification scope tied to concrete configuration, version, and content hash.
+Software should be certified by design. In Openstrux, reusable components carry explicit security, privacy, and usage boundaries, tied to concrete configuration, version, and content hash. Builds or audits fail when a system operates outside declared scope.
 
 Software should also be human-translatable on demand. The primary source does not have to be conventional code; it can be a compact internal graph or IR, while human-readable code and explanations are generated when needed through deterministic translation.
 
@@ -16,11 +16,12 @@ This matters because AI-built systems need more than generation speed. They need
 
 Openstrux begins with dataflows because they are a practical place to prove the model, but the ambition is larger than pipelines. The broader goal is a building system for software where trust is built in, not bolted on afterward.
 
-That is the Openstrux manifesto: 
- * AI-native.
- * Token- and cost-efficient.
- * Certified by design.
- * Human-translatable on demand.
- * Built for performance.
- * Structure first. Code second.
- * Trust built in. Not bolted on.
+That is the Openstrux manifesto:
+
+- AI-native.
+- Token- and cost-efficient.
+- Certified by design.
+- Human-translatable on demand.
+- Built for performance.
+- Structure first. Code second.
+- Trust built in. Not bolted on.
