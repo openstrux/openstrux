@@ -149,8 +149,7 @@ SchemaRef: `@type` reference or named schema from context (e.g., `schema: UserPa
 
 ## Standard Rods (v0.6)
 
-Standard rods compose basic rods. They ship with core, carry project certification, and expand
-to a basic rod sub-graph during IR lowering. Rod authors cannot override them.
+Standard rods compose basic rods. They ship with core, carry project certification, and expand to a basic rod sub-graph during IR lowering. Rod authors cannot override them.
 
 ### `private-data` — Privacy-safe personal data processing
 

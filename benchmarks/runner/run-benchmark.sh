@@ -527,9 +527,6 @@ if [[ "$MODE" == "apply" ]]; then
   if [[ "$KEEP_TEST_ENV" == "false" ]]; then
     sudo -u postgres dropdb -h 127.0.0.1 --if-exists "$BENCH_DB" 2>/dev/null || true
     sudo -u postgres dropuser -h 127.0.0.1 --if-exists "$BENCH_USER" 2>/dev/null || true
-  else
-    echo "Kept bench DB (--keep-test-env): $DB_URL"
-    echo "  clean up: run-benchmark.sh --mode clean-test-env --uc $UC_ROOT --result-dir $RESULT_DIR"
   fi
 
   # RV3.3: Merge integration counts into benchmark.json
@@ -591,7 +588,11 @@ PYEOF
       || rm -rf "$WORKTREE_FROM_FILE"
     echo "Worktree removed: $WORKTREE_FROM_FILE"
   else
-    echo "Kept worktree (--keep-test-env): $WORKTREE_FROM_FILE"
+    echo "Test env kept (--keep-test-env):"
+    echo "  worktree : $WORKTREE_FROM_FILE"
+    echo "  branch   : $BENCH_BRANCH"
+    echo "  db url   : $DB_URL"
+    echo "  clean up : run-benchmark.sh --mode clean-test-env --uc $UC_ROOT --result-dir $RESULT_DIR"
   fi
 
   echo ""

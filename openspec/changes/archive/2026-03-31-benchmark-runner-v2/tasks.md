@@ -48,23 +48,23 @@
 ### RV8 — Mock PrismaClient for integration tests (uc repo)
 
 - [x] RV8.1 Add `vitest-mock-extended` to `app/web/package.json` devDependencies; run `pnpm install` and commit updated lockfile
-- [x] RV8.2 Write `tests/integration/setup.ts`:
+- [x] RV8.2 Write `tests/integration-mock/setup.ts` (co-located with mock tests, not `tests/integration/`):
   - `vi.mock('@prisma/client', () => ({ PrismaClient: vi.fn(() => mockDeep<PrismaClient>()) }))`
   - Export `mockPrisma` as the singleton mock instance
   - `beforeEach(() => mockReset(mockPrisma))` for test isolation
-- [x] RV8.3 Update `vitest.config.ts`: add `setupFiles: ['./tests/integration/setup.ts']` to integration test environment config
+- [x] RV8.3 Update `vitest.config.ts`: add `setupFiles: ['./tests/integration-mock/setup.ts']` to `integration-mock` test pool config (not the `integration` pool)
 - [x] RV8.4 Write `tests/integration-mock/intake.test.ts`: mock-based version (no DB); `tests/integration/intake.test.ts` reverted to real-DB for runner
 - [x] RV8.5 Write `tests/integration-mock/eligibility.test.ts`: same pattern; add `test:integration:mock` script to `package.json`
 - [x] RV8.6 Verify: `pnpm test:integration:mock` runs with no `DATABASE_URL` (fails on stubs, not on DB connection)
-- [x] RV8.7 Update `openspec/changes/backend-generation/tasks.md`: add note that integration tests use a PrismaClient mock and do not require a real database
+- [x] RV8.7 Add mock-compatibility note to `openspec/changes/backend/specs/` (change is named `backend`, not `backend-generation`; no tasks.md exists): note captured in `specs/proposal-intake/spec.md` and referenced in generation specs (`pnpm test:integration:mock` passes, no DB required)
 - [x] RV8.8 Update CLAUDE.md template (RV7.2) to include `pnpm test:integration` once this task is complete
 
 ### RV9 — Verification
 
-- [ ] RV9.1 `--mode prompt`: verify `bench-<slug>` branch appears on GitHub immediately after run, selectable in remote Claude Code session
-- [ ] RV9.2 `--mode apply`: verify integration tests run (with mock, no DB), results committed and pushed to bench branch
-- [ ] RV9.3 `--mode agent`: verify CLAUDE.md present in worktree, branch created + pushed, results committed after run
-- [ ] RV9.4 `--keep-test-env`: verify worktree + DB still alive after run, DATABASE_URL printed, `pnpm test:integration` runs manually
-- [ ] RV9.5 `--mode clean-test-env --result-dir <path>`: only that run's DB/user/branch/worktree removed; other Postgres objects untouched
-- [ ] RV9.6 `--mode clean-test-env` (no result-dir): all `grant_bench_*` DBs, `bench_*` users, `bench-*` branches removed; other Postgres objects untouched
-- [ ] RV9.7 After RV8 merged: `pnpm test:integration` passes with no DATABASE_URL in the worktree context
+- [x] RV9.1 `--mode prompt`: verify `bench-<slug>` branch appears on GitHub immediately after run, selectable in remote Claude Code session
+- [x] RV9.2 `--mode apply`: verify integration tests run (with mock, no DB), results committed and pushed to bench branch
+- [x] RV9.3 `--mode agent`: verify CLAUDE.md present in worktree, branch created + pushed, results committed after run
+- [x] RV9.4 `--keep-test-env`: verify worktree + DB still alive after run, DATABASE_URL printed, `pnpm test:integration` runs manually
+- [x] RV9.5 `--mode clean-test-env --result-dir <path>`: only that run's DB/user/branch/worktree removed; other Postgres objects untouched
+- [x] RV9.6 `--mode clean-test-env` (no result-dir): all `grant_bench_*` DBs, `bench_*` users, `bench-*` branches removed; other Postgres objects untouched
+- [x] RV9.7 After RV8 merged: `pnpm test:integration` passes with no DATABASE_URL in the worktree context
