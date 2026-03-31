@@ -103,6 +103,19 @@ A human-authored reference Art. 30 record for the grant workflow is created at `
 - PII fields: applicant name, email, organization, proposal content
 - Technical measures: pseudonymization of applicant identity, access control via role middleware
 
+### D6: Meaningful code surface metric
+
+After step 1 completes, the runner records the token size of the code an LLM would need to read to make a subsequent change to the system — the *change surface*. The definition is path-specific:
+
+- **Openstrux path**: token count of all `.strux` source files in the worktree. Build output (TypeScript emitted by `strux build`) is explicitly excluded — it is derived, not authoritative, and an LLM making a change should not need to read it.
+- **Direct path**: token count of all TypeScript source files in `src/`, excluding `node_modules/`, `dist/`, `.next/`, and other build or dependency artifacts.
+
+Token count is measured using the same tokenizer used for the benchmark model (tiktoken cl100k_base as a stable approximation). The result is recorded as `code-surface.json` in the step 1 result directory.
+
+**Why this matters:** The three-step benchmark tests *how hard* it is to certify and propagate changes. Code surface token size quantifies one root cause of that difficulty — a smaller readable surface means less context the LLM must load, fewer places a change can be missed, and lower risk of stale certification. This makes the structural advantage of `.strux` files quantitatively legible without relying on API cost proxies.
+
+**Relationship to B014:** B014 measures tokens *consumed* in the certification API call (input + output cost). B016 measures the *size of the code the LLM must read* — a property of the generated artifact, not of the LLM call. Both are token efficiency metrics but at different points in the pipeline.
+
 ## Risks / Trade-offs
 
 - **Step ordering dependency**: Step 2 quality depends entirely on step 1 output. A failed step 1 produces garbage for step 2. Mitigated by only scoring step 2 when step 1 passes all acceptance criteria.

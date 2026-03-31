@@ -52,6 +52,32 @@ A benchmark case SHALL exist (B014) that compares the token cost of producing an
 - **WHEN** B014 step 2 is evaluated for both paths
 - **THEN** the total tokens consumed (input + output) for the certification step are recorded and compared
 
+### Requirement: B016 — Meaningful code surface token size
+
+A benchmark case SHALL exist (B016) in the `token-efficiency` category that measures the token size of the code an LLM must read to make a change to the generated system.
+
+**Constructs tested:** Code surface area, structural authoritativeness of `.strux` vs generated TypeScript
+
+The metric is path-specific:
+- **Openstrux path**: tokens in all `.strux` source files in the worktree (build output excluded)
+- **Direct path**: tokens in all TypeScript source files under `src/` (excluding `node_modules/`, `dist/`, `.next/`, and other non-authoritative artifacts)
+
+#### Scenario: B016 case file exists with required fields
+- **WHEN** the benchmark suite is inspected
+- **THEN** `benchmarks/cases/B016.md` exists with id, category, intent prompt, and expected metrics including `code-surface-tokens`
+
+#### Scenario: Code surface recorded after step 1
+- **WHEN** step 1 (generate) completes for either path
+- **THEN** `code-surface.json` is written to the result directory with `path`, `tokenCount`, `fileCount`, `files` (list of measured file paths), and `excludedPatterns`
+
+#### Scenario: Openstrux path surface excludes build output
+- **WHEN** B016 is evaluated for the openstrux path
+- **THEN** TypeScript files emitted by `strux build` are excluded from the token count and `.strux` source files are the sole inputs
+
+#### Scenario: Direct path surface excludes dependencies and artifacts
+- **WHEN** B016 is evaluated for the direct path
+- **THEN** files under `node_modules/`, `dist/`, `.next/`, and test fixture directories are excluded from the token count
+
 ### Requirement: B015 — Technical measures identification
 
 A benchmark case SHALL exist (B015) that measures whether an LLM correctly identifies the technical and organizational security measures applied in the generated system.

@@ -51,6 +51,40 @@ A JSON schema SHALL be defined at `benchmarks/schemas/art30-record.json` that sp
 - **WHEN** an Art. 30 record omits `purpose` for a processing activity
 - **THEN** schema validation fails, identifying the missing field
 
+### Requirement: Meaningful code surface measurement
+
+The benchmark runner SHALL measure and record the token size of meaningful generated code after step 1 completes.
+
+**Meaningful code** is defined per path:
+- **Openstrux path**: all `.strux` files in the worktree root. TypeScript files emitted by `strux build` are explicitly excluded.
+- **Direct path**: all `.ts` files under `src/`. Files under `node_modules/`, `dist/`, `.next/`, `*.d.ts` declaration files, and test fixture directories are excluded.
+
+Token count SHALL use tiktoken cl100k_base encoding as a stable, model-independent approximation.
+
+Output SHALL be written to `<result-dir>/code-surface.json` with the following structure:
+
+```json
+{
+  "path": "openstrux | direct",
+  "tokenCount": 4200,
+  "fileCount": 7,
+  "files": ["src/data/submission.strux", "..."],
+  "excludedPatterns": ["**/*.ts", "..."]
+}
+```
+
+#### Scenario: Code surface JSON is written after step 1
+- **WHEN** the step 1 apply phase completes
+- **THEN** `code-surface.json` exists in the result directory with all required fields populated
+
+#### Scenario: Openstrux token count is lower than direct token count
+- **WHEN** both paths complete step 1 on the grant workflow use case
+- **THEN** the openstrux `tokenCount` is lower than the direct `tokenCount` (structural compression hypothesis)
+
+#### Scenario: Excluded files are listed
+- **WHEN** `code-surface.json` is inspected
+- **THEN** `excludedPatterns` lists every glob pattern used to exclude files, enabling reproducibility and audit
+
 ### Requirement: Reference Art. 30 record for grant workflow
 
 A human-authored reference Art. 30 record SHALL exist at `benchmarks/baselines/art30-reference.json` for the grant workflow use case. It SHALL cover:

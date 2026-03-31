@@ -72,6 +72,7 @@ INPUT_TOKENS_ARG=""
 OUTPUT_TOKENS_ARG=""
 TIME_SECONDS_ARG=""
 RETRIES_ARG=""
+STEP="1"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -90,6 +91,7 @@ while [[ $# -gt 0 ]]; do
     --web)           WEB_SESSION=true;       shift ;;
     --note)          NOTE="$2";              shift 2 ;;
     --max-turns)     MAX_TURNS="$2";         shift 2 ;;
+    --step)          STEP="$2";              shift 2 ;;
     --input-tokens)  INPUT_TOKENS_ARG="$2";  shift 2 ;;
     --output-tokens) OUTPUT_TOKENS_ARG="$2"; shift 2 ;;
     --time-seconds)  TIME_SECONDS_ARG="$2";  shift 2 ;;
@@ -192,6 +194,22 @@ if [[ "$MODE" == "apply" && -z "$RESPONSE_FILE" && -z "$RESULT_DIR_ARG" ]]; then
   exit 1
 fi
 
+# Step 2/3 require an existing result-dir with worktree.txt from step 1
+case "$STEP" in
+  1) ;;
+  2|3)
+    if [[ -z "$RESULT_DIR_ARG" ]]; then
+      echo "Error: --step ${STEP} requires --result-dir pointing to a completed step 1 result directory"
+      exit 1
+    fi
+    if [[ ! -f "$RESULT_DIR_ARG/worktree.txt" ]]; then
+      echo "Error: $RESULT_DIR_ARG/worktree.txt not found — run --step 1 first"
+      exit 1
+    fi
+    ;;
+  *) echo "Error: --step must be 1, 2, or 3 (got: $STEP)"; exit 1 ;;
+esac
+
 UC_ROOT="$(cd "$UC_ROOT" && pwd)"
 
 # Auto-detect provider from model name (for display and API key check)
@@ -269,6 +287,7 @@ fi
 echo "============================================================"
 echo " Benchmark run : $RUN_SLUG"
 echo " mode          : $MODE"
+echo " step          : $STEP"
 echo " use-case repo : $UC_ROOT"
 echo " path          : $PATH_NAME"
 echo " model         : $MODEL"
@@ -410,21 +429,30 @@ commit_results() {
 # ---------------------------------------------------------------------------
 
 if [[ "$MODE" == "prompt" ]]; then
-  echo "=== Step 1: Create worktree ==="
-  git -C "$UC_ROOT" worktree add -b "$BENCH_BRANCH" "$WORKTREE_DIR" HEAD
-  prune_opposite_path_spec "$WORKTREE_DIR" "$PATH_NAME"
-  echo ""
+  # Steps 2/3 reuse the worktree from step 1 — skip worktree creation and install.
+  if [[ "$STEP" == "1" ]]; then
+    echo "=== Step 1: Create worktree ==="
+    git -C "$UC_ROOT" worktree add -b "$BENCH_BRANCH" "$WORKTREE_DIR" HEAD
+    prune_opposite_path_spec "$WORKTREE_DIR" "$PATH_NAME"
+    echo ""
 
-  echo "=== Step 2: Install dependencies ==="
-  (cd "$WORKTREE_DIR" && pnpm install --frozen-lockfile --silent)
-  echo ""
+    echo "=== Step 2: Install dependencies ==="
+    (cd "$WORKTREE_DIR" && pnpm install --frozen-lockfile --silent)
+    echo ""
+  else
+    # Recover worktree from step 1 result-dir
+    WORKTREE_DIR="$(cat "$RESULT_DIR_ARG/worktree.txt")"
+    echo "=== Reusing worktree from step 1: $WORKTREE_DIR ==="
+    echo ""
+  fi
 
-  echo "=== Assembling prompt ==="
+  echo "=== Assembling prompt (step ${STEP}) ==="
   WEB_FLAG=""
   [[ "$WEB_SESSION" == "true" ]] && WEB_FLAG="--web"
   node --experimental-strip-types "$RUNNER_DIR/generate.ts" \
     --mode       prompt \
     --path       "$PATH_NAME" \
+    --step       "$STEP" \
     --worktree   "$WORKTREE_DIR" \
     --result-dir "$RESULT_DIR" \
     --branch     "$BENCH_BRANCH" \
@@ -434,22 +462,28 @@ if [[ "$MODE" == "prompt" ]]; then
   # branch so CC sessions on any machine get them when checking out the branch.
   # These files are gitignored on main but needed in the worktree at runtime.
   echo ""
-  echo "=== Committing injected tooling to bench branch ==="
-  # Stage injected files (--force overrides .gitignore) and any tracked deletions
-  # (e.g. pruned opposite-path spec).
-  git -C "$WORKTREE_DIR" add --force \
-    .openstrux/ openstrux-lang/ .claude/ CLAUDE.md 2>/dev/null || true
-  git -C "$WORKTREE_DIR" add -u 2>/dev/null || true
-  git -C "$WORKTREE_DIR" diff --cached --quiet \
-    || git -C "$WORKTREE_DIR" commit -m "chore(bench): inject tooling for ${PATH_NAME} path"
-  git -C "$WORKTREE_DIR" push origin "$BENCH_BRANCH" 2>/dev/null \
-    || echo "Note: tooling commit push failed (skipped)"
+  if [[ "$STEP" == "1" ]]; then
+    echo "=== Committing injected tooling to bench branch ==="
+    # Stage injected files (--force overrides .gitignore) and any tracked deletions
+    # (e.g. pruned opposite-path spec).
+    git -C "$WORKTREE_DIR" add --force \
+      .openstrux/ openstrux-lang/ .claude/ CLAUDE.md 2>/dev/null || true
+    git -C "$WORKTREE_DIR" add -u 2>/dev/null || true
+    git -C "$WORKTREE_DIR" diff --cached --quiet \
+      || git -C "$WORKTREE_DIR" commit -m "chore(bench): inject tooling for ${PATH_NAME} path"
+    git -C "$WORKTREE_DIR" push origin "$BENCH_BRANCH" 2>/dev/null \
+      || echo "Note: tooling commit push failed (skipped)"
+  fi
+
+  STEP_RESULT_DIR="$RESULT_DIR"
+  [[ "$STEP" != "1" ]] && STEP_RESULT_DIR="$RESULT_DIR/step-${STEP}"
 
   echo ""
   echo "============================================================"
-  echo " Prompt written to: $RESULT_DIR/prompt-${PATH_NAME}.txt"
-  echo " Worktree kept at:  $WORKTREE_DIR"
+  echo " Prompt written to: $STEP_RESULT_DIR/prompt-${PATH_NAME}.txt"
+  echo " Worktree:          $WORKTREE_DIR"
   echo " Branch:            $BENCH_BRANCH"
+  echo " Step:              $STEP"
   echo "============================================================"
   exit 0
 fi

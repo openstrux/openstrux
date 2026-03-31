@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Art30Record",
+  "description": "GDPR Article 30 Record of Processing Activities",
+  "type": "object",
+  "required": ["processingActivities"],
+  "additionalProperties": false,
+  "properties": {
+    "processingActivities": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/ProcessingActivity" }
+    }
+  },
+  "definitions": {
+    "ProcessingActivity": {
+      "type": "object",
+      "required": [
+        "controller",
+        "purpose",
+        "lawfulBasis",
+        "dataSubjectCategories",
+        "personalDataCategories",
+        "recipients",
+        "retention",
+        "technicalMeasures"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "controller":              { "type": "string", "minLength": 1 },
+        "dpo":                     { "type": ["string", "null"] },
+        "purpose":                 { "type": "string", "minLength": 1 },
+        "lawfulBasis":             { "type": "string", "minLength": 1 },
+        "dataSubjectCategories":   { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "personalDataCategories":  { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "recipients":              { "type": "array", "items": { "type": "string" } },
+        "retention":               { "type": "string", "minLength": 1 },
+        "technicalMeasures":       { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "dpiaRef":                 { "type": ["string", "null"] }
+      }
+    }
+  }
+}

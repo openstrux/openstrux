@@ -93,6 +93,7 @@ import {
   cpSync,
   copyFileSync,
   chmodSync,
+  globSync,
 } from "node:fs";
 import { join, resolve, dirname, basename } from "node:path";
 import { execSync } from "node:child_process";
@@ -114,6 +115,7 @@ const resultDirArg   = arg("--result-dir");
 const branchArg      = arg("--branch");
 const webMode        = process.argv.includes("--web");
 const maxTurns       = parseInt(arg("--max-turns") ?? "80", 10);
+const stepArg        = parseInt(arg("--step") ?? "1", 10);
 const maxWallMs      = 25 * 60 * 1000;
 // Optional explicit token/time overrides for apply mode (web-session runs)
 const inputTokensArg  = arg("--input-tokens");
@@ -593,6 +595,133 @@ function assemblePrompt(
   }
 
   return parts.join("\n\n---\n\n");
+}
+
+// ---------------------------------------------------------------------------
+// Step 2/3 prompt assembly (prompt mode, steps 2 and 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Assemble the certification (step 2) or propagation (step 3) prompt.
+ * Reads the step template from the hub repo's benchmarks/prompts/ directory
+ * alongside this script, then appends a path-specific context appendix.
+ */
+function assembleStepPrompt(step: 2 | 3): string {
+  const runnerDir  = dirname(new URL(import.meta.url).pathname);
+  const promptsDir = join(runnerDir, "../prompts");
+
+  const templateFile = step === 2
+    ? join(promptsDir, "step-2-certify.md")
+    : join(promptsDir, "step-3-propagate.md");
+
+  if (!existsSync(templateFile)) {
+    throw new Error(`Step ${step} prompt template not found: ${templateFile}`);
+  }
+  let prompt = readFileSync(templateFile, "utf-8");
+
+  if (step === 2) {
+    const appendixFile = join(promptsDir, `step-2-certify-appendix-${pathArg}.md`);
+    if (existsSync(appendixFile)) {
+      prompt += "\n\n---\n\n" + readFileSync(appendixFile, "utf-8");
+    } else {
+      console.warn(`[generate] Warning: step 2 appendix not found: ${appendixFile}`);
+    }
+  }
+
+  return prompt;
+}
+
+// ---------------------------------------------------------------------------
+// Code surface measurement (B016 — meaningful code token count)
+// ---------------------------------------------------------------------------
+
+interface CodeSurface {
+  path:             "direct" | "openstrux";
+  tokenCount:       number;
+  fileCount:        number;
+  files:            string[];
+  excludedPatterns: string[];
+  tokenizer:        string;
+}
+
+/**
+ * Count tokens in the "meaningful" generated code for the given path:
+ * - openstrux: all *.strux files (excluding .openstrux/build/ and node_modules)
+ * - direct:    src/**\/*.ts (excluding *.d.ts, node_modules, dist, .next)
+ *
+ * Uses tiktoken cl100k_base for token counting.
+ * Result is written to <resultDir>/code-surface.json.
+ */
+async function measureCodeSurface(wt: string, rd: string): Promise<void> {
+  const pathName = pathArg as "direct" | "openstrux";
+
+  let patterns: string[];
+  const excludedPatterns: string[] = [];
+
+  if (pathName === "openstrux") {
+    patterns = ["**/*.strux"];
+    excludedPatterns.push("**/.openstrux/build/**", "**/node_modules/**");
+  } else {
+    patterns = ["src/**/*.ts"];
+    excludedPatterns.push("**/*.d.ts", "**/node_modules/**", "**/dist/**", "**/.next/**");
+  }
+
+  // Collect matching files and post-filter excluded paths
+  const isExcluded = (relPath: string): boolean => {
+    const p = relPath.replace(/\\/g, "/");
+    if (pathName === "openstrux") {
+      return p.includes(".openstrux/build/") || p.includes("node_modules/");
+    } else {
+      return p.endsWith(".d.ts") || p.includes("node_modules/") ||
+             p.includes("/dist/") || p.startsWith("dist/") ||
+             p.includes("/.next/") || p.startsWith(".next/");
+    }
+  };
+
+  const matchedFiles: string[] = [];
+  for (const pattern of patterns) {
+    const found = (globSync(pattern, { cwd: wt }) as string[]).filter((p) => !isExcluded(p));
+    matchedFiles.push(...found);
+  }
+
+  // Deduplicate
+  const uniqueFiles = [...new Set(matchedFiles)].sort();
+
+  // Count tokens using tiktoken
+  let totalTokens = 0;
+  try {
+    const { get_encoding } = await import("tiktoken");
+    const enc = get_encoding("cl100k_base");
+    for (const relPath of uniqueFiles) {
+      const abs = join(wt, relPath);
+      if (!existsSync(abs)) continue;
+      const content = readFileSync(abs, "utf-8");
+      totalTokens += enc.encode(content).length;
+    }
+    enc.free();
+  } catch (e: unknown) {
+    console.warn(`[generate] Warning: tiktoken unavailable — using char/4 approximation`);
+    for (const relPath of uniqueFiles) {
+      const abs = join(wt, relPath);
+      if (!existsSync(abs)) continue;
+      totalTokens += Math.round(readFileSync(abs, "utf-8").length / 4);
+    }
+  }
+
+  const surface: CodeSurface = {
+    path:             pathName,
+    tokenCount:       totalTokens,
+    fileCount:        uniqueFiles.length,
+    files:            uniqueFiles,
+    excludedPatterns,
+    tokenizer:        "cl100k_base",
+  };
+
+  const outPath = join(rd, "code-surface.json");
+  writeFileSync(outPath, JSON.stringify(surface, null, 2) + "\n", "utf-8");
+  console.log(
+    `[generate] Code surface (${pathName}): ${uniqueFiles.length} files, ${totalTokens} tokens → ${outPath}`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1137,8 +1266,27 @@ async function agentMode(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function promptMode(): Promise<void> {
-  console.log(`[generate] mode=prompt path=${pathArg}`);
+  console.log(`[generate] mode=prompt path=${pathArg} step=${stepArg}`);
   console.log(`[generate] worktree=${worktree}`);
+
+  // Steps 2 and 3 use a different prompt and write into a step-N/ subdirectory.
+  // No spec injection needed (step 1 already did it).
+  if (stepArg === 2 || stepArg === 3) {
+    const stepDir = join(resultDir!, `step-${stepArg}`);
+    mkdirSync(stepDir, { recursive: true });
+
+    const prompt   = assembleStepPrompt(stepArg);
+    const promptFile = join(stepDir, `prompt-${pathArg}.txt`);
+    writeFileSync(promptFile, prompt, "utf-8");
+
+    // Pre-create response slot
+    const slot = join(stepDir, `response1.txt`);
+    if (!existsSync(slot)) writeFileSync(slot, "", "utf-8");
+
+    console.log(`[generate] Wrote step ${stepArg} prompt: ${promptFile}`);
+    console.log(`[generate] Prompt length: ${prompt.length} chars / ~${Math.round(prompt.length / 4)} tokens`);
+    return;
+  }
 
   // Inject openstrux spec bundle into worktree (before prompt assembly so
   // assemblePrompt can read syntax-reference.md from the local copy).
@@ -1412,6 +1560,10 @@ async function applyMode(): Promise<void> {
   console.log(`\n[generate] Running unit tests...`);
   const testResult = runTests(worktree, config, attempt, resultDir!);
   console.log(`[generate] Tests: ${testResult.passed}/${testResult.total} passed, ${testResult.failed} failed`);
+
+  // Measure meaningful code surface (B016) — token-maintainability of generated code.
+  // Runs regardless of test outcome so the metric is always captured.
+  await measureCodeSurface(worktree, resultDir!);
 
   // ---------------------------------------------------------------------------
   // Token meta: parse footer from response (Option 1) and/or explicit flags

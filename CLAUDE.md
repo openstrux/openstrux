@@ -76,14 +76,42 @@ benchmarks/runner/run-benchmark.sh \
 |---|---|---|
 | `--path` | — | `direct` or `openstrux` |
 | `--mode` | `agent` | `prompt`, `agent`, `apply`, `clean-test-env` |
+| `--step` | `1` | `1` (generate), `2` (certify), `3` (propagate); steps 2/3 require `--result-dir` from step 1 |
 | `--model` | `claude-sonnet-4-6` | any model ID |
 | `--provider` | auto from model | `anthropic`, `openai`, `google-gemini` |
 | `--keep-test-env` | false | keep worktree + bench DB after tests |
 | `--web` | false | prompt mode: web-safe prompt (relative paths, fenced-block output) |
 | `--no-db` | — | skip integration tests |
-| `--result-dir` | auto-generated | required for apply |
+| `--result-dir` | auto-generated | required for apply; required for steps 2/3 |
 | `--response` | — | apply: fenced-block file (omit if CC pushed) |
 | `--max-turns` | 80 | agent mode only |
+
+### Multi-step workflow (certification benchmarks)
+
+```bash
+# Step 1: generate backend (existing workflow)
+benchmarks/runner/run-benchmark.sh --uc ... --path openstrux --mode prompt --step 1
+
+# Step 2: certify — assemble certification prompt using step 1 worktree
+benchmarks/runner/run-benchmark.sh --uc ... --path openstrux --mode prompt --step 2 \
+  --result-dir <step-1-result-dir>
+# → writes step-1-result-dir/step-2/prompt-openstrux.txt
+
+# Step 3: propagate — add phone_number PII field and re-certify
+benchmarks/runner/run-benchmark.sh --uc ... --path openstrux --mode prompt --step 3 \
+  --result-dir <step-1-result-dir>
+# → writes step-1-result-dir/step-3/prompt-openstrux.txt
+```
+
+### Scoring certification results
+
+```bash
+node --experimental-strip-types benchmarks/runner/score-certification.ts \
+  --result   <step-2-result-dir>/art30-output.json \
+  --reference benchmarks/baselines/art30-reference.json \
+  --response  <step-2-result-dir>/response.txt \
+  --out       <step-2-result-dir>/scoring.json
+```
 
 ### Result dir layout (auto: `../openstrux-uc-grant-workflow/benchmarks/results/<YYYYMMDD-HHmmss>-<path>`)
 
@@ -93,7 +121,15 @@ worktree.txt          abs path to worktree
 response-agent.txt    agent conversation log
 test-unit.json        final unit test results
 generation-meta.json  tokens / turns / time
+code-surface.json     meaningful code token count (B016 — token-maintainability)
 evidence.zip          bundled artefacts
+step-2/
+  prompt-<path>.txt   certification prompt
+  response1.txt       LLM response slot
+  scoring.json        completeness / accuracy / queryability scores
+step-3/
+  prompt-<path>.txt   propagation prompt
+  response1.txt       LLM response slot
 ```
 
 ## Commit format

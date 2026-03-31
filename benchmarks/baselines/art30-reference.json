@@ -1,0 +1,44 @@
+{
+  "processingActivities": [
+    {
+      "controller": "NLnet Foundation",
+      "dpo": "dpo@nlnet.nl",
+      "purpose": "Grant application processing",
+      "lawfulBasis": "Contract",
+      "dataSubjectCategories": ["Grant applicants"],
+      "personalDataCategories": [
+        "Full name",
+        "Email address",
+        "Organization name",
+        "Proposal content"
+      ],
+      "recipients": ["Assigned reviewers", "NLnet programme team"],
+      "retention": "7 years after grant decision (accounting obligation)",
+      "technicalMeasures": [
+        "Pseudonymization: applicant identity stored separately from proposal content in blinded packets",
+        "Role-based access control: reviewer role required to access eligibility pipeline",
+        "Audit logging: all state transitions and data access recorded in AuditEvent"
+      ],
+      "dpiaRef": null
+    },
+    {
+      "controller": "NLnet Foundation",
+      "dpo": "dpo@nlnet.nl",
+      "purpose": "Grant eligibility assessment",
+      "lawfulBasis": "Legitimate interest",
+      "dataSubjectCategories": ["Grant applicants"],
+      "personalDataCategories": [
+        "Blinded proposal content",
+        "Eligibility decision outcome"
+      ],
+      "recipients": ["Assigned reviewers", "NLnet programme team"],
+      "retention": "7 years after grant decision (accounting obligation)",
+      "technicalMeasures": [
+        "Pseudonymization: reviewer sees blinded proposal without applicant identity",
+        "Role-based access control: reviewer role required",
+        "Audit logging: eligibility check recorded with timestamp and reviewer identity"
+      ],
+      "dpiaRef": null
+    }
+  ]
+}
