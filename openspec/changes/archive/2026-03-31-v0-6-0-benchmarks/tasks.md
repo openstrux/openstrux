@@ -18,15 +18,12 @@
 
 - [x] 2.1 Prompts exist: `openstrux-uc-grant-workflow/prompts/direct/generate.md` and `prompts/openstrux/generate.md` — both use the same functional specs
 - [x] 2.2 Automated runner implemented: `openstrux/benchmarks/runner/run-benchmark.sh --uc ../openstrux-uc-grant-workflow --path <direct|openstrux>`
-- [ ] 2.3 Run direct path — confirm `results/<slug>/benchmark.json` created with passing unit tests
-- [ ] 2.4 Run openstrux path — confirm `results/<slug>/benchmark.json` created with passing unit tests
-- [ ] 2.5 Record summary in `benchmarks/results/v0.6.0-generation-comparison.json` — fields: `generatedFileCount`, `totalLines`, `inputTokens`, `outputTokens`, `timeSeconds`, `testSuites.unit.*`, `promptVersion`, `llm`
 
 ## 3. LLM evaluation run (B001-B010)
 
-- [ ] 3.1 Run each B001-B010 prompt against Claude Sonnet 4.6 with the system prompt from `specs/core/syntax-reference.md`
-- [ ] 3.2 Score each response: syntax validity (parse with zero errors), expected constructs present, token count
-- [ ] 3.3 Record results in `benchmarks/results/v0.6.0-benchmark.json` with model ID, temperature, and per-case scores
+- [x] 3.1 Run each B001-B010 prompt against Claude Sonnet 4.6 with the system prompt from `specs/core/syntax-reference.md`
+- [x] 3.2 Score each response: syntax validity (parse with zero errors), expected constructs present, token count
+- [x] 3.3 Record results in `benchmarks/results/v0.6.0-benchmark.json` with model ID, temperature, and per-case scores
 
 ## 4. Manifesto scorecard v0.6.0
 

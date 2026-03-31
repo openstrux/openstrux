@@ -8,11 +8,14 @@ The v0.6.0 scorecard is a partial run: one LLM family, 10 cases, grant-workflow 
 
 **Goals:**
 - B001-B010: 10 simple use-cases comparing `.strux` with TypeScript — each defines a small problem (e.g., a CRUD entity, a validation rule, an access policy) and measures token count in both representations
-- Grant-workflow generation comparison: same prompt, two targets — measure input tokens (prompt size), output tokens (generated code size), and wall-clock time
+- Grant-workflow generation infrastructure: two-path prompt setup (direct TS and `.strux`-assisted) and automated runner — ready to execute when the use-case repo is ready
+- LLM evaluation of B001-B010 syntax generation against Claude Sonnet 4.6
 - Baseline TypeScript implementations for each case (hand-written)
 - v0.6.0 manifesto scorecard
 
 **Non-Goals:**
+- Executing the grant-workflow generation benchmark runs (separate activity; use `run-benchmark.sh` against the UC repo)
+- Recording generation comparison results (`v0.6.0-generation-comparison.json`)
 - Running benchmarks against multiple LLM families (v0.7.0)
 - B011-B030 (composition, certification/audit, translation, performance categories)
 
@@ -24,10 +27,10 @@ Each case is a small, self-contained problem that exercises one or two construct
 **Token counting: tiktoken cl100k_base**
 Same tokeniser for all measurements. Ensures demo ratio and benchmark ratio are comparable.
 
-**Grant-workflow generation benchmark: automated two-path comparison**
-Prompts already exist in `openstrux-uc-grant-workflow/prompts/` — `direct/generate.md` and `openstrux/generate.md`, both using the same functional specs from `specs/`. Both paths are executed by the benchmark runner (`openstrux/benchmarks/runner/run-benchmark.sh --uc ../openstrux-uc-grant-workflow --path <direct|openstrux>`), which isolates each run in a git worktree, calls the Anthropic API with a clean context, runs unit tests, and archives results to `openstrux-uc-grant-workflow/results/<slug>/benchmark.json`.
+**Grant-workflow generation benchmark: infrastructure only**
+Prompts are defined in `openstrux-uc-grant-workflow/prompts/` — `direct/generate.md` and `openstrux/generate.md`, both using the same functional specs from `specs/`. The automated runner (`openstrux/benchmarks/runner/run-benchmark.sh --uc ../openstrux-uc-grant-workflow --path <direct|openstrux>`) isolates each run in a git worktree, calls the Anthropic API with a clean context, runs unit tests, and archives results to `openstrux-uc-grant-workflow/results/<slug>/benchmark.json`. This change delivers the infrastructure; executing the runs is a separate activity.
 
-Metrics captured per run: `generatedFileCount`, `totalLines`, `inputTokens`, `outputTokens`, `timeSeconds`, `testSuites.unit.*`, `promptVersion`, `llm`. Token and time metrics are captured from the Anthropic streaming SSE response — `input_tokens` from the `message_start` event, `output_tokens` from the `message_delta` event, written to `generation-meta.json` by `generate-api.ts` and read by `save-result.sh`. Metric deferred to follow-up: `repairIterations`.
+Metrics that runs will capture: `generatedFileCount`, `totalLines`, `inputTokens`, `outputTokens`, `timeSeconds`, `testSuites.unit.*`, `promptVersion`, `llm`. Token and time metrics are captured from the Anthropic streaming SSE response — `input_tokens` from the `message_start` event, `output_tokens` from the `message_delta` event, written to `generation-meta.json` by `generate-api.ts` and read by `save-result.sh`.
 
 **Scorecard format: per MANIFESTO_OBJECTIVES.md**
 PASS/WARN/FAIL per principle. WARN-data (incomplete measurement) is acceptable for alpha; WARN-result (below threshold) requires a remediation plan.
