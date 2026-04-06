@@ -565,17 +565,19 @@ if [[ "$MODE" == "apply" ]]; then
 
   # RV3.3: Merge integration counts into benchmark.json
   if [[ -f "${RESULT_DIR}/test-integration.json" ]]; then
-    node --input-type=module <<JSEOF
+    RESULT_DIR="$RESULT_DIR" node --input-type=module <<'JSEOF'
 import { readFileSync, writeFileSync } from "node:fs";
-const bench = JSON.parse(readFileSync("${RESULT_DIR}/benchmark.json", "utf-8"));
-const integ  = JSON.parse(readFileSync("${RESULT_DIR}/test-integration.json", "utf-8"));
+import { join } from "node:path";
+const rd = process.env.RESULT_DIR;
+const bench = JSON.parse(readFileSync(join(rd, "benchmark.json"), "utf-8"));
+const integ  = JSON.parse(readFileSync(join(rd, "test-integration.json"), "utf-8"));
 bench.testSuites = bench.testSuites ?? {};
 bench.testSuites.integration = {
   total:  integ.numTotalTests  ?? 0,
   passed: integ.numPassedTests ?? 0,
   failed: integ.numFailedTests ?? 0,
 };
-writeFileSync("${RESULT_DIR}/benchmark.json", JSON.stringify(bench, null, 2));
+writeFileSync(join(rd, "benchmark.json"), JSON.stringify(bench, null, 2));
 console.log("Updated benchmark.json with integration results.");
 JSEOF
   fi
@@ -584,31 +586,7 @@ JSEOF
   if [[ -f "${RESULT_DIR}/evidence.zip" ]]; then
     echo ""
     echo "=== Re-bundling evidence.zip (post-integration) ==="
-    python3 - "${RESULT_DIR}" "${RESULT_DIR}/evidence.zip" \
-        "benchmark.json" "generation-meta.json" "evidence.zip" <<'PYEOF'
-import zipfile, os, sys
-result_dir, out_path, *keep = sys.argv[1:]
-keep_set = set(keep)
-# Read existing zip entries
-existing = {}
-if os.path.exists(out_path):
-    with zipfile.ZipFile(out_path, 'r') as zf:
-        for name in zf.namelist():
-            existing[name] = zf.read(name)
-# Add/overwrite with any loose files not in keep_set
-for name in sorted(os.listdir(result_dir)):
-    if name in keep_set:
-        continue
-    fp = os.path.join(result_dir, name)
-    if os.path.isfile(fp):
-        with open(fp, 'rb') as f:
-            existing[name] = f.read()
-# Write merged zip
-with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-    for name, data in sorted(existing.items()):
-        zf.writestr(name, data)
-print("Re-bundled evidence.zip")
-PYEOF
+    python3 "$RUNNER_DIR/bundle-evidence.py" "$RESULT_DIR"
   fi
 
   # RV3.5 / RV2.2: Commit results to bench branch
@@ -725,9 +703,10 @@ echo "=== Step 4: Unit tests ==="
 TEST_JSON="$RESULT_DIR/test-unit.json"
 TEST_EXIT=0
 
-TEST_CMD="$(node --input-type=module <<JS
+TEST_CMD="$(WORKTREE_DIR="$WORKTREE_DIR" node --input-type=module <<'JS'
 import { readFileSync } from "node:fs";
-const c = JSON.parse(readFileSync("$WORKTREE_DIR/benchmark.config.json", "utf-8"));
+import { join } from "node:path";
+const c = JSON.parse(readFileSync(join(process.env.WORKTREE_DIR, "benchmark.config.json"), "utf-8"));
 process.stdout.write(c.testUnit ?? "pnpm test:unit");
 JS
 )"
@@ -766,16 +745,18 @@ echo ""
 
 # Step 7: Merge integration counts into benchmark.json (if run)
 if [[ "$WITH_DB" == "true" && -f "${RESULT_DIR}/test-integration.json" ]]; then
-  node --input-type=module <<JSEOF
+  RESULT_DIR="$RESULT_DIR" node --input-type=module <<'JSEOF'
 import { readFileSync, writeFileSync } from "node:fs";
-const bench = JSON.parse(readFileSync("${RESULT_DIR}/benchmark.json", "utf-8"));
-const integ  = JSON.parse(readFileSync("${RESULT_DIR}/test-integration.json", "utf-8"));
+import { join } from "node:path";
+const rd = process.env.RESULT_DIR;
+const bench = JSON.parse(readFileSync(join(rd, "benchmark.json"), "utf-8"));
+const integ  = JSON.parse(readFileSync(join(rd, "test-integration.json"), "utf-8"));
 bench.testSuites.integration = {
   total:  integ.numTotalTests  ?? 0,
   passed: integ.numPassedTests ?? 0,
   failed: integ.numFailedTests ?? 0,
 };
-writeFileSync("${RESULT_DIR}/benchmark.json", JSON.stringify(bench, null, 2));
+writeFileSync(join(rd, "benchmark.json"), JSON.stringify(bench, null, 2));
 console.log("Updated benchmark.json with integration results.");
 JSEOF
 fi
@@ -784,28 +765,7 @@ fi
 if [[ -f "${RESULT_DIR}/evidence.zip" ]]; then
   echo ""
   echo "=== Step 7.5: Re-bundling evidence.zip (post-integration) ==="
-  python3 - "${RESULT_DIR}" "${RESULT_DIR}/evidence.zip" \
-      "benchmark.json" "generation-meta.json" "evidence.zip" <<'PYEOF'
-import zipfile, os, sys
-result_dir, out_path, *keep = sys.argv[1:]
-keep_set = set(keep)
-existing = {}
-if os.path.exists(out_path):
-    with zipfile.ZipFile(out_path, 'r') as zf:
-        for name in zf.namelist():
-            existing[name] = zf.read(name)
-for name in sorted(os.listdir(result_dir)):
-    if name in keep_set:
-        continue
-    fp = os.path.join(result_dir, name)
-    if os.path.isfile(fp):
-        with open(fp, 'rb') as f:
-            existing[name] = f.read()
-with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-    for name, data in sorted(existing.items()):
-        zf.writestr(name, data)
-print("Re-bundled evidence.zip")
-PYEOF
+  python3 "$RUNNER_DIR/bundle-evidence.py" "$RESULT_DIR"
 fi
 
 # Step 8: Commit results to bench branch

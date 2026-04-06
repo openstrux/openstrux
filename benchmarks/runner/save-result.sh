@@ -44,18 +44,7 @@ if [[ -z "$PATH_NAME" || -z "$LLM" || -z "$WORKTREE" || -z "$RESULT_DIR" ]]; the
   exit 1
 fi
 
-# Derive uc repo root from worktree (worktree lives one level up from uc root)
-UC_ROOT="$(node --input-type=module <<JSEOF
-import { readFileSync } from "node:fs";
-// The worktree is a sibling of the uc repo — work backwards
-const wt = "${WORKTREE}";
-// benchmark.config.json is in the worktree root, same as uc root structure
-process.stdout.write(wt);
-JSEOF
-)"
-UC_ROOT="$WORKTREE"  # worktree mirrors uc root; output/ lives in the uc root
-# Actually output/ and results/ should be in the REAL uc root, not the worktree.
-# Derive uc root from result-dir (result-dir = uc-root/results/<slug>)
+# Derive uc repo root from result-dir (result-dir = uc-root/benchmarks/results/<slug>)
 UC_ROOT="$(dirname "$(dirname "$RESULT_DIR")")"
 
 mkdir -p "$RESULT_DIR"
@@ -160,24 +149,13 @@ UNIT_TOTAL=0; UNIT_PASSED=0; UNIT_FAILED=0
 TEST_SUMMARY="not run"
 
 if [[ -n "$TEST_JSON" && -f "$TEST_JSON" ]]; then
-  UNIT_TOTAL=$(node  --input-type=module <<JS
+  read -r UNIT_TOTAL UNIT_PASSED UNIT_FAILED < <(
+    TEST_JSON="$TEST_JSON" node --input-type=module <<'JS'
 import { readFileSync } from "node:fs";
-const d = JSON.parse(readFileSync("$TEST_JSON","utf-8"));
-process.stdout.write(String(d.numTotalTests  ?? 0));
+const d = JSON.parse(readFileSync(process.env.TEST_JSON, "utf-8"));
+process.stdout.write(`${d.numTotalTests ?? 0} ${d.numPassedTests ?? 0} ${d.numFailedTests ?? 0}`);
 JS
-)
-  UNIT_PASSED=$(node --input-type=module <<JS
-import { readFileSync } from "node:fs";
-const d = JSON.parse(readFileSync("$TEST_JSON","utf-8"));
-process.stdout.write(String(d.numPassedTests ?? 0));
-JS
-)
-  UNIT_FAILED=$(node --input-type=module <<JS
-import { readFileSync } from "node:fs";
-const d = JSON.parse(readFileSync("$TEST_JSON","utf-8"));
-process.stdout.write(String(d.numFailedTests ?? 0));
-JS
-)
+  )
   TEST_SUMMARY="${UNIT_PASSED}/${UNIT_TOTAL} pass"
   echo "Test results: $TEST_SUMMARY"
 fi
@@ -192,30 +170,14 @@ TIME_SECONDS=0
 RETRIES=0
 
 if [[ -f "$RESULT_DIR/generation-meta.json" ]]; then
-  INPUT_TOKENS=$(node --input-type=module <<JS
+  read -r INPUT_TOKENS OUTPUT_TOKENS TIME_SECONDS RETRIES < <(
+    RESULT_DIR="$RESULT_DIR" node --input-type=module <<'JS'
 import { readFileSync } from "node:fs";
-const d = JSON.parse(readFileSync("$RESULT_DIR/generation-meta.json","utf-8"));
-process.stdout.write(String(d.inputTokens ?? 0));
+import { join } from "node:path";
+const d = JSON.parse(readFileSync(join(process.env.RESULT_DIR, "generation-meta.json"), "utf-8"));
+process.stdout.write(`${d.inputTokens ?? 0} ${d.outputTokens ?? 0} ${d.timeSeconds ?? 0} ${d.retries ?? 0}`);
 JS
-)
-  OUTPUT_TOKENS=$(node --input-type=module <<JS
-import { readFileSync } from "node:fs";
-const d = JSON.parse(readFileSync("$RESULT_DIR/generation-meta.json","utf-8"));
-process.stdout.write(String(d.outputTokens ?? 0));
-JS
-)
-  TIME_SECONDS=$(node --input-type=module <<JS
-import { readFileSync } from "node:fs";
-const d = JSON.parse(readFileSync("$RESULT_DIR/generation-meta.json","utf-8"));
-process.stdout.write(String(d.timeSeconds ?? 0));
-JS
-)
-  RETRIES=$(node --input-type=module <<JS
-import { readFileSync } from "node:fs";
-const d = JSON.parse(readFileSync("$RESULT_DIR/generation-meta.json","utf-8"));
-process.stdout.write(String(d.retries ?? 0));
-JS
-)
+  )
   echo "Token usage: input=${INPUT_TOKENS}  output=${OUTPUT_TOKENS}  time=${TIME_SECONDS}s  retries=${RETRIES}"
 fi
 
@@ -231,8 +193,8 @@ GAPS_JSON="[]"
 # ---------------------------------------------------------------------------
 
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-SAFE_NOTE="$(node --input-type=module <<JSEOF
-process.stdout.write(JSON.stringify("${NOTE}"));
+SAFE_NOTE="$(NOTE="$NOTE" node --input-type=module <<'JSEOF'
+process.stdout.write(JSON.stringify(process.env.NOTE ?? ""));
 JSEOF
 )"
 
@@ -263,34 +225,18 @@ echo "Wrote benchmark.json"
 # Bundle evidence — everything except benchmark.json and generation-meta.json
 # ---------------------------------------------------------------------------
 
-KEEP=('benchmark.json' 'generation-meta.json' 'evidence.zip')
-EVIDENCE_ZIP="$RESULT_DIR/evidence.zip"
-
-python3 - "$RESULT_DIR" "$EVIDENCE_ZIP" "${KEEP[@]}" <<'PYEOF'
-import zipfile, os, sys
-result_dir, out_path, *keep = sys.argv[1:]
-keep_set = set(keep)
-with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-    for name in sorted(os.listdir(result_dir)):
-        if name in keep_set:
-            continue
-        fp = os.path.join(result_dir, name)
-        if os.path.isfile(fp):
-            zf.write(fp, name)
-PYEOF
+python3 "$RUNNER_DIR/bundle-evidence.py" "$RESULT_DIR"
 
 # Remove individual files now bundled into evidence.zip
-python3 - "$RESULT_DIR" "$EVIDENCE_ZIP" "${KEEP[@]}" <<'PYEOF'
+python3 - "$RESULT_DIR" <<'PYEOF'
 import zipfile, os, sys
-result_dir, evidence, *keep = sys.argv[1:]
-keep_set = set(keep)
-with zipfile.ZipFile(evidence, 'r') as zf:
+result_dir = sys.argv[1]
+keep_set = {"benchmark.json", "generation-meta.json", "evidence.zip"}
+with zipfile.ZipFile(os.path.join(result_dir, "evidence.zip"), 'r') as zf:
     for name in zf.namelist():
         fp = os.path.join(result_dir, name)
         if os.path.isfile(fp) and name not in keep_set:
             os.remove(fp)
 PYEOF
-
-echo "Bundled evidence → evidence.zip"
 echo ""
 echo "=== Result saved to $RESULT_DIR ==="

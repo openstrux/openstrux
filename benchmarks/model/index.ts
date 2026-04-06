@@ -21,6 +21,7 @@ export const BenchmarkResultSchema = z.object({
   inputTokens:        z.number().int().nonnegative(),
   outputTokens:       z.number().int().nonnegative(),
   timeSeconds:        z.number().nonnegative(),
+  retries:            z.number().int().nonnegative().default(0),
   testSuites: z.object({
     unit:         TestSuiteResultSchema,
     integration:  TestSuiteResultSchema.optional(),

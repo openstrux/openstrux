@@ -158,7 +158,7 @@ function scoreAccuracy(
   const fieldScores: number[] = [];
 
   // String fields: synonym match
-  for (const field of ["purpose", "lawfulBasis", "retention"] as const) {
+  for (const field of ["controller", "dpo", "purpose", "lawfulBasis", "retention"] as const) {
     const g = generated[field];
     const r = reference[field];
     if (!r) continue;

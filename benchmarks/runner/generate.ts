@@ -186,6 +186,9 @@ const baseUrl = baseUrlArg ?? DEFAULT_BASE_URLS[provider];
 // ---------------------------------------------------------------------------
 
 if (!pathArg || !["direct", "openstrux"].includes(pathArg)) {
+  if (pathArg) {
+    console.error(`Error: --path must be 'direct' or 'openstrux' (got: '${pathArg}')`);
+  }
   console.error(
     "Usage: generate.ts --path <direct|openstrux> [--mode agent|prompt|apply] " +
     "[--model <id>] [--provider <anthropic|openai|google-gemini>] " +
@@ -787,6 +790,10 @@ const OAI_TOOLS = [
     type: "function",
     function: {
       name: "bash",
+      // SECURITY NOTE: This tool executes arbitrary commands with no sandbox.
+      // It is intentional for benchmark runs where the LLM operates in a
+      // disposable worktree. Do NOT reuse this agent loop for general-purpose
+      // agentic applications without adding command filtering / sandboxing.
       description: "Run a shell command in the project worktree. Use for running tests (pnpm test:unit), checking TypeScript errors (pnpm type-check), or exploring the file tree.",
       parameters: {
         type: "object",
@@ -1158,6 +1165,13 @@ async function runOAIAgent(): Promise<void> {
   let turns        = 0;
 
   const messages: OAIMessage[] = [
+    {
+      role: "system",
+      content:
+        "You are a senior software engineer implementing a backend for a benchmark task. " +
+        "You have access to tools: read_file, write_file, list_files, and bash. " +
+        `Your working directory is the project root. Use relative paths. Path: ${pathArg}.`,
+    },
     { role: "user", content: taskPrompt },
   ];
 
