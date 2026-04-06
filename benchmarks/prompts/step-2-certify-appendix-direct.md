@@ -10,6 +10,11 @@ Read the route handlers (`src/app/api/*/route.ts`) and service layer (`src/serve
 ### Personal data categories
 Read the Prisma schema (`prisma/schema.prisma`) and TypeScript domain types (`src/domain/schemas/`). Fields that store names, emails, identifiers, or proposal content are personal data. Also check fixture files (`tests/fixtures/`) for concrete field examples.
 
+### Controller and DPO
+Not encoded in TypeScript — use the canonical values for this system:
+- Controller: **Grant-Workflow Foundation**
+- DPO: **dpo@grant-foundation.com**
+
 ### Lawful basis
 Not encoded in TypeScript — derive from the business context:
 - Intake (proposal submission): **Contract** — the applicant is applying under grant terms
