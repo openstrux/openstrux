@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Parser converts source text to a typed AST
-The parser SHALL accept a UTF-8 string of `.strux` source and return a `ParseResult` containing an array of `StruxNode` and an array of `Diagnostic`. It SHALL NOT throw exceptions.
+The parser SHALL accept a UTF-8 string of `.strux` source and return a `ParseResult` containing an array of `StruxNode` and an array of `Diagnostic`. It SHALL NOT throw exceptions. `PanelNode` SHALL carry a `privacy?: Record<string, KnotValue>` field populated when an `@privacy { ... }` block is present in the panel body. When `@privacy` is absent, `privacy` SHALL be `undefined`.
 
 #### Scenario: Valid source produces AST with no diagnostics
 - **WHEN** the parser receives a valid `.strux` file matching a `conformance/valid/` fixture
@@ -10,6 +10,14 @@ The parser SHALL accept a UTF-8 string of `.strux` source and return a `ParseRes
 #### Scenario: Invalid source produces diagnostics with no throw
 - **WHEN** the parser receives a `.strux` file with a known syntax error
 - **THEN** `result.diagnostics` SHALL contain at least one entry with a non-empty `code` and valid `line`/`col` values, and no exception SHALL be thrown
+
+#### Scenario: @privacy block is parsed into PanelNode.privacy
+- **WHEN** a panel body contains `@privacy { framework: gdpr, dpa_ref: "DPA-2026-001" }`
+- **THEN** `PanelNode.privacy` is a record with keys `framework` and `dpa_ref`
+
+#### Scenario: PanelNode.privacy is undefined when @privacy is absent
+- **WHEN** a panel body does not contain `@privacy`
+- **THEN** `PanelNode.privacy` is `undefined`
 
 ### Requirement: Parser handles all grant-workflow P0–P2 constructs
 The parser SHALL correctly parse `@strux` record, enum, and union definitions; `@panel` blocks in shorthand form; all 18 rod types; `@access` blocks; and expression shorthand for filter, projection, and aggregation.

@@ -9,6 +9,7 @@
 - **CI-005**: Named `@source`/`@target` references are resolved against context declarations; inline overrides apply as spread; unresolved reference emits compile error
 - **CI-006**: `@cert` blocks in `strux.context` files are rejected with `E_CERT_IN_CONTEXT` (ADR-011)
 - **CI-007**: The resolved context is a fully flattened `ResolvedContext` object — no context references remain after resolution
+- **CI-008**: `@privacy { framework, dpa_ref? }` is recognised as a panel-level decorator; `framework` is required and `dpa_ref` is optional; `@privacy` MAY be inherited from `strux.context` in v0.7+, but in v0.6 it is panel-level only
 
 ### Acceptance Scenarios
 
@@ -32,3 +33,11 @@ Then `cfg.source` is replaced with the full `db.sql.postgres` config with `host:
 Given a `strux.context` file containing a `@cert` block
 When config is resolved
 Then `E_CERT_IN_CONTEXT` is emitted
+
+**Scenario: @privacy block accepted in panel body (CI-008)**
+- **WHEN** a panel declares `@privacy { framework: gdpr }`
+- **THEN** no parse error is emitted and `PanelNode.privacy` is set
+
+**Scenario: @privacy with dpa_ref (CI-008)**
+- **WHEN** a panel declares `@privacy { framework: gdpr, dpa_ref: "DPA-2026-001" }`
+- **THEN** `PanelNode.privacy` contains both `framework` and `dpa_ref` fields

@@ -85,3 +85,7 @@ When any field in `fields` has `sensitivity: special_category` (Art. 9 data), th
 #### Scenario: Special category restricts lawful basis
 - **WHEN** `fields` includes a `special_category` field and `lawful_basis: legitimate_interest`
 - **THEN** the compiler emits a diagnostic error: `legitimate_interest` is not a valid basis for special category data under Art. 9
+
+#### Scenario: Special category with consent basis — no error
+- **WHEN** `fields` includes a `special_category` field and `lawful_basis: consent`
+- **THEN** the compiler does NOT emit `E_GDPR_INVALID_BASIS_SPECIAL_CATEGORY`

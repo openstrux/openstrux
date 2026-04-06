@@ -14,6 +14,7 @@
 - **V-007**: Validator emits policy diagnostics:
   - `W_POLICY_OPAQUE` when guard references an external or unreachable hub policy
   - `W_SCOPE_UNVERIFIED` when scope fields cannot be statically confirmed
+- **V-008**: Validator enforces `@privacy` path coverage: when a panel has `PanelNode.privacy` set (i.e., `@privacy` is declared), the validator SHALL emit `E_PRIVACY_BYPASS` (severity: error) if the panel contains no `private-data` rod; the validator SHALL NOT emit `E_PRIVACY_BYPASS` when `@privacy` is absent
 
 ### Acceptance Scenarios
 
@@ -31,3 +32,15 @@ Then `V001` diagnostic is emitted with the undefined type name and source locati
 Given a panel with a guard rod referencing an OPA policy
 When the validator runs
 Then `W_POLICY_OPAQUE` is emitted for the guard rod
+
+**Scenario: @privacy without private-data rod (V-008)**
+- **WHEN** a panel declares `@privacy { framework: gdpr }` and has no `private-data` rod
+- **THEN** the validator emits `E_PRIVACY_BYPASS` with severity `error`
+
+**Scenario: @privacy with private-data rod present (V-008)**
+- **WHEN** a panel declares `@privacy { framework: gdpr }` and has at least one `private-data` rod
+- **THEN** the validator does NOT emit `E_PRIVACY_BYPASS`
+
+**Scenario: No @privacy — bypass rule silent (V-008)**
+- **WHEN** a panel does not declare `@privacy`
+- **THEN** the validator does NOT emit `E_PRIVACY_BYPASS`

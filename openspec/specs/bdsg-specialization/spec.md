@@ -22,6 +22,10 @@ When `framework: gdpr.bdsg` is used with `employee_data: true`, the `private-dat
 - **WHEN** `framework: gdpr.bdsg` with `employee_data: true` and no `employee_category`
 - **THEN** the compiler emits a diagnostic error: `employee_category` is required when `employee_data` is true (BDSG Section 26)
 
+#### Scenario: Employee category required — diagnostic code
+- **WHEN** `framework: gdpr.bdsg` with `employee_data: true` and no `employee_category`
+- **THEN** the diagnostic code SHALL be `E_BDSG_EMPLOYEE_CATEGORY` with severity `error`
+
 ### Requirement: Betriebsrat consent tracking
 
 When `framework: gdpr.bdsg` is used with `employee_data: true`, the `betriebsrat_consent` config knot SHALL be validated. If the processing purpose involves employee monitoring, performance evaluation, or behavioral analysis, `betriebsrat_consent` is required.

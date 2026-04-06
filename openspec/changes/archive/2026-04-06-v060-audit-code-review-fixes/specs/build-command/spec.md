@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: strux build emits a package-shaped artifact
 The `strux build` command SHALL read `strux.config.yaml`, resolve adapters, parse all `.strux` files, validate the AST, and emit a self-contained package-shaped directory at the configured output path (default: `.openstrux/build/`).
@@ -26,21 +26,3 @@ The `strux build` command SHALL read `strux.config.yaml`, resolve adapters, pars
 #### Scenario: No matching source files — warn and no-op
 - **WHEN** `strux build` is run and no `.strux` files match the configured source globs
 - **THEN** the command SHALL emit a warning and return without creating the output directory
-
-### Requirement: strux build output is deterministic
-Same `.strux` source files plus same `snap.lock` SHALL produce identical output on every build, per ADR-000.
-
-#### Scenario: Repeated builds produce identical output
-- **WHEN** `strux build` is run twice with no source changes
-- **THEN** the output directory contents SHALL be byte-identical
-
-### Requirement: strux build runs adapter post-build hooks
-After writing the package output, `strux build` SHALL run any post-build hook declared by the adapter (e.g., `prisma generate` for the Prisma adapter).
-
-#### Scenario: Post-build hook executes after output
-- **WHEN** `strux build` completes and the adapter declares a post-build hook
-- **THEN** the hook command SHALL be executed after all files are written
-
-#### Scenario: Post-build hook failure is reported
-- **WHEN** a post-build hook exits with a non-zero status
-- **THEN** `strux build` SHALL report the hook failure but SHALL NOT delete the generated output
