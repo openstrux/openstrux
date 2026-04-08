@@ -253,40 +253,39 @@ You are implementing the backend of a privacy-first grant review workflow system
 
 ## Your task
 
-Implement all contract stubs so that the unit tests pass. The stubs already define
-the exact API surfaces — field names, function signatures, and return types. Your job
-is to replace the \`throw new Error("Not implemented")\` bodies with real code.
+Implement all contract stubs so that the unit tests pass. The stubs define
+the exact API surfaces — field names, function signatures, and return types.
+Replace the \`throw new Error("Not implemented")\` bodies with real code.
 
 ## Steps
 
-1. **Read the OpenSpec change specs** — they define acceptance criteria and requirements:
+1. **Read the OpenSpec change specs** — acceptance criteria and requirements:
    - openspec/changes/backend/proposal.md
    - openspec/changes/backend/specs/ (all spec.md files, especially generation-direct)
 
-2. **Read the domain specs** for business logic:
-   - openspec/specs/domain-model.md
-   - openspec/specs/workflow-states.md
-   - openspec/specs/access-policies.md
-   - openspec/specs/mvp-profile.md
+2. **Read the domain specs**:
+   - openspec/specs/domain-model.md, openspec/specs/workflow-states.md
+   - openspec/specs/access-policies.md, openspec/specs/mvp-profile.md
 
 3. **Read the stubs** — they define the exact contract (field names must match):
    - src/domain/schemas/index.ts
    - src/policies/index.ts
-   - src/lib/dal.ts
    - src/server/services/submissionService.ts
    - src/server/services/eligibilityService.ts
    - src/app/api/intake/route.ts
    - src/app/api/eligibility/route.ts
+   - src/app/api/proposals/route.ts
+   - src/app/api/proposals/[id]/route.ts
+   - src/app/api/proposals/[id]/assign/route.ts
+   - src/app/api/proposals/[id]/review/route.ts
+   - src/app/api/proposals/[id]/validate/route.ts
+   - src/app/api/audit/route.ts
 
-4. **Read the unit tests** — they are your acceptance criteria:
-   - tests/unit/ (all *.test.ts files)
-   - tests/fixtures/ (JSON fixture files)
+4. **Implement** all stubs. Also implement prisma/schema.prisma and prisma/seeds/seed.ts.
 
-5. **Implement** all stubs. Also implement prisma/schema.prisma.
+5. **Run unit tests**: \`pnpm test:unit\`
 
-6. **Run unit tests**: \`pnpm test:unit\`
-
-7. **Read failures carefully**. Fix them. Repeat until all tests pass.
+6. **Read failures carefully**. Fix them. Repeat until all tests pass.
 
 ## Hard constraints
 - Do NOT rename or change schema field names — the stubs define the exact contract.
@@ -297,75 +296,76 @@ is to replace the \`throw new Error("Not implemented")\` bodies with real code.
 
 const OPENSTRUX_PROMPT = `\
 You are implementing the backend of a privacy-first grant review workflow system
-using the Openstrux language as an intermediate representation.
+using the Openstrux language.
 
 ## Your task
 
-Generate .strux source files that describe the domain model and data flows,
-then compile them to TypeScript via \`npx strux build\`, then gap-fill any
-remaining stubs so all unit tests pass.
+Express the entire backend in \`.strux\` source files — domain model, all data
+flows, filters, transforms, guards, and aggregations. Run \`strux build\` to
+compile them into fully working TypeScript. Then wire each \`route.ts\` as a
+thin call into the generated handler and write \`prisma/seeds/seed.ts\`.
 
-The contract stubs define the exact API surfaces — field names must be preserved exactly.
+\`strux build\` generates: Prisma schema, TypeScript types, Zod schemas, and
+fully-lowered route handler implementations (filter predicates, projections,
+guard policies, aggregations — all expressed in portable strux, compiled to
+idiomatic TypeScript). Import generated handlers via the \`@openstrux/build/*\`
+tsconfig path alias.
 
 ## Steps
 
-1. **Read the OpenSpec change specs** — they define acceptance criteria and requirements:
+1. **Read the OpenSpec change specs** — acceptance criteria and requirements:
    - openspec/changes/backend/proposal.md
    - openspec/changes/backend/specs/ (all spec.md files, especially generation-openstrux)
 
-2. **Learn the Openstrux language** — read these files in order:
-   - openstrux-lang/syntax-reference.md (mandatory — start here)
-   - openstrux-lang/examples/ (concrete .strux files, especially p0-domain-model.strux)
-   - openstrux-lang/grammar.md, openstrux-lang/type-system.md (only if stuck)
+2. **Learn the Openstrux language**:
+   - openstrux-lang/syntax-reference.md (start here)
+   - openstrux-lang/examples/ (concrete .strux files)
+   - openstrux-lang/grammar.md, openstrux-lang/type-system.md (if stuck)
 
-3. **Read the domain specs** for business logic:
+3. **Read the domain specs** — understand every panel, data flow, and policy:
    - openspec/specs/domain-model.md, openspec/specs/workflow-states.md
    - openspec/specs/access-policies.md, openspec/specs/mvp-profile.md
 
-4. **Read the stubs** — they define the exact contract:
-   - src/domain/schemas/index.ts
-   - src/policies/index.ts
-   - src/lib/dal.ts
-   - src/server/services/submissionService.ts
-   - src/server/services/eligibilityService.ts
+4. **Read the route stubs** — they define the exact contract (field names must match):
    - src/app/api/intake/route.ts
    - src/app/api/eligibility/route.ts
+   - src/app/api/proposals/route.ts
+   - src/app/api/proposals/[id]/route.ts
+   - src/app/api/proposals/[id]/assign/route.ts
+   - src/app/api/proposals/[id]/review/route.ts
+   - src/app/api/proposals/[id]/validate/route.ts
+   - src/app/api/audit/route.ts
 
-5. **Write .strux source files** under pipelines/ and specs/:
-   - specs/p0-domain-model.strux — @type definitions for all P0-P2 entities
-   - strux.context — project-wide @context (controller, DPO, named @source)
-   - pipelines/intake/p1-intake.strux — intake pipeline panel
-   - pipelines/eligibility/p2-eligibility.strux — eligibility pipeline panel
+5. **Write .strux source files** — express the entire backend in strux:
+   - One \`.strux\` file per panel (intake, eligibility, proposals, review, audit, …)
+   - Use \`predicate:\` for filters, \`fields:\` for projections, \`policy:\` for guards,
+     \`fn:\` for aggregations — strux build lowers all of these to TypeScript.
+   - Every route handler must be driven by a strux panel — no hand-written logic.
 
-6. **Run strux build**: \`npx strux build --explain\`
+6. **Run strux build**: \`npx strux build\`
+   The build output lists every generated handler, type, schema, guard, and the Prisma schema path — use this to wire the route files in the next step. Confirm zero error diagnostics.
 
-   \`strux build\` generates the following:
-   - **\`prisma/schema.prisma\`** (at project root) — complete, ready-to-use Prisma schema from your \`@type\` declarations; do NOT write this by hand
-   - TypeScript type definitions → \`.openstrux/build/types/\`
-   - Zod schemas → \`.openstrux/build/schemas/\`
-   - Route handler scaffolds → \`.openstrux/build/handlers/\`
-   - Prisma client re-export → \`.openstrux/build/lib/prisma.ts\`
+7. **Wire route.ts files** — replace each stub with a thin import + call:
+   \`\`\`ts
+   import { GET } from "@openstrux/build/handlers/my-panel";
+   export { GET };
+   \`\`\`
+   Route files should contain no business logic — only re-exports of generated handlers.
 
-   Generated artifacts are importable via the \`@openstrux/build/*\` tsconfig path alias, e.g.:
-   \`import type { Submission } from "@openstrux/build/types";\`
+8. **Implement \`prisma/seeds/seed.ts\`** — write test fixtures (this is the only
+   hand-written logic file; everything else is generated).
 
-7. **Gap-fill** the TypeScript stubs that \`strux build\` does not cover — these require hand-written implementations:
-   - Service layer (\`src/server/services/\`) — business rules, orchestration
-   - Policy functions (\`src/policies/index.ts\`) — \`evaluateEligibility\`, \`createBlindedPacket\`, \`isValidTransition\`, \`getNextStatus\`
-   - DAL (\`src/lib/dal.ts\`) — \`verifySession\`
-   - Auth-aware route handlers (\`src/app/api/*/route.ts\`) — call \`verifySession\`, return 401/403 before business logic
-   - Seed (\`prisma/seeds/seed.ts\`) — upsert fixtures; idempotent
+9. **Run unit tests**: \`pnpm test:unit\`
 
-8. **Run unit tests**: \`pnpm test:unit\`
-
-9. **Read failures carefully**. Fix them. Repeat until all tests pass.
+10. **Read failures carefully**. Fix .strux source or seed data. Repeat until all tests pass.
 
 ## Hard constraints
 - Do NOT rename or change schema field names — the stubs define the exact contract.
 - Do NOT modify any file under tests/.
 - Do NOT modify package.json, pnpm-lock.yaml, or pnpm-workspace.yaml.
 - All TypeScript must compile (strict mode).
-- .strux files MUST be written — this is the openstrux benchmark path. Do not skip straight to TypeScript.
+- .strux files MUST express all business logic — this is the openstrux benchmark path.
+  Route files are thin re-exports only. Do not write business logic in TypeScript directly.
 `;
 
 const taskPrompt = pathArg === "openstrux" ? OPENSTRUX_PROMPT : DIRECT_PROMPT;
@@ -582,16 +582,17 @@ function assemblePrompt(
     parts.push(section("Output Format", readFromWorktree(wt, "benchmarks/prompts/shared/task-format.md")));
   }
 
-  if (pathArg === "openstrux") {
-    // Include the syntax reference inline in the prompt (it's the primary
-    // learning material and small enough to include directly).
+  if (pathArg === "openstrux" && webMode) {
+    // In --web mode the LLM has no file-system access, so inline the syntax
+    // reference directly. In agent/prompt mode the file is available in the
+    // worktree at openstrux-lang/syntax-reference.md and the model reads it.
     const syntaxRef = join(wt, "openstrux-lang/syntax-reference.md");
     if (existsSync(syntaxRef)) {
       // Insert before Path Instructions (second-to-last or third-to-last)
       const insertIdx = parts.length - (opts.skipOutputFormat ? 1 : 2);
       parts.splice(insertIdx, 0,
         section("Openstrux Language Reference", readFileSync(syntaxRef, "utf-8")));
-      console.log("[generate] Included syntax-reference.md from spec bundle");
+      console.log("[generate] Included syntax-reference.md inline (web mode)");
     } else {
       console.warn("[generate] Warning: syntax-reference.md not found in spec bundle — skipping");
     }

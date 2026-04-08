@@ -64,4 +64,4 @@
 - [x] 7.2 Confirm `prisma validate` passes on the generated schema (no Prisma syntax errors) — skipped (Prisma not installed in core; schema validated manually)
 - [x] 7.3 Confirm overwrite guard: create a hand-edited `prisma/schema.prisma` without the header; run `strux build`; confirm warning and skip
 - [x] 7.4 Confirm `strux build --overwrite-schema` overwrites the hand-edited file
-- [ ] 7.5 Run a full benchmark run on the grant-workflow use case (openstrux path) and confirm `prisma/schema.prisma` gap-fill is no longer needed
+- [x] 7.5 Run a full benchmark run on the grant-workflow use case (openstrux path) and confirm `prisma/schema.prisma` gap-fill is no longer needed
