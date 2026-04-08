@@ -30,9 +30,12 @@ This writes `strux.config.yaml`, updates `tsconfig.json`, and adds `.openstrux/`
 
 Before v0.6, generated files lived in your source tree (e.g., `app/api/*/route.ts`, `lib/schemas/`). These should now come from `.openstrux/build/` instead.
 
+**Prisma schema:** In v0.6, `strux build` generates a complete `prisma/schema.prisma` at your project root from `@type` declarations with persistence annotations (`@pk`, `@relation`, `@@index`, `@timestamps`, etc.). If you previously authored `prisma/schema.prisma` by hand, migrate the model definitions into `.strux` annotations and let the generator produce the file.
+
 Remove:
 - `app/api/<panel>/route.ts` files that were generated (keep hand-written ones)
 - `lib/schemas/<Type>.schema.ts` files that were generated
+- Any hand-authored `prisma/schema.prisma` once all models are covered by `.strux` annotations
 
 ### 3. Update imports
 

@@ -339,12 +339,12 @@ The contract stubs define the exact API surfaces — field names must be preserv
 
 6. **Run strux build**: \`npx strux build --explain\`
 
-   \`strux build\` generates the following into \`.openstrux/build/\`:
-   - TypeScript type definitions (from \`@type\` declarations)
-   - Zod schemas (from \`@type\` + constraints)
-   - Prisma schema fragments
-   - Route handler scaffolds (from \`receive\`/\`respond\` panels)
-   - Prisma client re-export
+   \`strux build\` generates the following:
+   - **\`prisma/schema.prisma\`** (at project root) — complete, ready-to-use Prisma schema from your \`@type\` declarations; do NOT write this by hand
+   - TypeScript type definitions → \`.openstrux/build/types/\`
+   - Zod schemas → \`.openstrux/build/schemas/\`
+   - Route handler scaffolds → \`.openstrux/build/handlers/\`
+   - Prisma client re-export → \`.openstrux/build/lib/prisma.ts\`
 
    Generated artifacts are importable via the \`@openstrux/build/*\` tsconfig path alias, e.g.:
    \`import type { Submission } from "@openstrux/build/types";\`

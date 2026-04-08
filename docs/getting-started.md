@@ -54,9 +54,9 @@ Create a `.strux` file anywhere under `src/`:
 ```
 // src/strux/proposals.strux
 
-@type Proposal {
-  id: string
-  title: string
+@type Proposal @timestamps {
+  id:     string @pk
+  title:  string
   status: ReviewStatus
 }
 
@@ -84,7 +84,11 @@ Create a `.strux` file anywhere under `src/`:
 npx strux build
 ```
 
-This reads all `.strux` files under your project, resolves the configured adapter, and writes generated TypeScript to `.openstrux/build/`.
+This reads all `.strux` files under your project, resolves the configured adapter, and writes:
+- Generated TypeScript to `.openstrux/build/`
+- A complete `prisma/schema.prisma` to your project root (from `@type` declarations with persistence annotations)
+
+Use `--explain` to print the generated Prisma schema before writing: `npx strux build --explain`.
 
 ## Import in your app
 

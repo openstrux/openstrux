@@ -17,12 +17,73 @@ design, human-translatable, structure-first, trust built in.
 @type Name = enum { val1, val2, val3 }                      // enum
 @type Name = union { tag1: Type1, tag2: Type2 }             // union
 @type Name @sealed { field: Type }                          // sealed record (standard types only)
+@type Name @timestamps { field: Type }                      // auto-inject createdAt/updatedAt
+@external @type Name { field: Type }                        // reference-only; no DDL emitted
 ```
 
 Primitives: `string`, `number`, `bool`, `date`, `bytes`.
 Containers: `Optional<T>`, `Batch<T>`, `Map<K,V>`, `Single<T>`, `Stream<T>`.
 Generic built-in: `PrivateData<T>` — personal data wrapper (see §Privacy).
 Constraint: `number [0..100]`, `string ["a","b","c"]`.
+
+## Persistence Annotations
+
+Field-level annotations (appear inline after the field type):
+
+| Annotation | Prisma output | Notes |
+|---|---|---|
+| `@pk` | `@id @default(cuid())` | One per record. `@pk(default: uuid\|ulid\|autoincrement)` to override. |
+| `@default(value)` | `@default(value)` | Use `now` for DateTime defaults. |
+| `@unique` | `@unique` | Single-field unique constraint. |
+| `@relation(field: f, ref: Model.id)` | `@relation(fields: [f], references: [id])` | FK. Optional `onDelete`/`onUpdate` referential actions. |
+| `@updatedAt` | `@updatedAt` | Only valid on `date` fields. |
+| `@column(name)` | `@map("name")` | Rename column in DB. |
+| `@ignore` | `@ignore` | Exclude field from Prisma client. |
+
+Alias leniency: `@id` is accepted as an alias for `@pk`, `@map` for `@column` — both emit `W_ANNOTATION_ALIAS` and continue.
+
+Block-level annotations (inside `@type` body, not attached to a field):
+
+| Annotation | Prisma output |
+|---|---|
+| `@@index([field1, field2])` | `@@index([field1, field2])` |
+| `@@unique([field1, field2])` | `@@unique([field1, field2])` |
+| `@@table("name")` | `@@map("name")` |
+| `@opaque <content>` | `// @opaque <content>` comment in model block |
+
+Type modifiers:
+
+- `@timestamps` — auto-injects `createdAt DateTime @default(now())` and `updatedAt DateTime @updatedAt` into the type and its Prisma model.
+- `@external @type` — declares the type as a reference to an existing table; no Prisma model block is emitted. Useful for brownfield schemas.
+
+`strux build` writes the complete `prisma/schema.prisma` to your project root. Do **not** write it by hand — use `@pk`, `@relation`, etc. in your `.strux` files and let the generator produce it.
+
+### Full @type example with persistence annotations
+
+```
+@type User @timestamps {
+  id:        string  @pk
+  email:     string  @unique
+  name:      string
+  posts:     Batch<Post>
+
+  @@index([email])
+}
+
+@type Post @timestamps {
+  id:       string  @pk
+  title:    string
+  authorId: string  @relation(field: authorId, ref: User.id, onDelete: Cascade)
+  status:   PostStatus
+}
+
+@type PostStatus = enum { draft, published, archived }
+
+@external @type AuditLog {
+  id:        string
+  createdAt: date
+}
+```
 
 ## Type Paths
 

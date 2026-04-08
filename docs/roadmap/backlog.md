@@ -33,10 +33,13 @@ Unversioned pool of deferred decisions and future improvements. Items here are n
 ## Brownfield Database Support (ADR-020)
 
 - [ ] `strux introspect` — read existing DB schema, emit `.strux` type definitions
-- [ ] `@external` type declarations — read-only references to tables `.strux` doesn't own
-- [ ] `@opaque` annotation design — preserve unmodeled DB features through round-trips
-- [ ] `@table` / `@column` / `@pk` mapping annotations for naming mismatches
 - [ ] Lint rules for `@opaque` annotation growth threshold
+
+## Persistence Annotations (type-persistence-annotations)
+
+- [ ] Composite primary keys — `@@id([f1, f2])` block annotation; deferred from type-persistence-annotations (uncommon, adds significant validator complexity)
+- [ ] `@db.XXX` native-type annotations — Prisma-specific type overrides (e.g. `@db.VarChar(255)`); deferred as too ORM-specific for the current abstraction layer
+- [ ] Bi-directional schema sync — round-trip between DB state and `.strux` source; out of scope until `strux introspect` lands
 
 ## Testing
 
